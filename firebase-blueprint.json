@@ -1,0 +1,87 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "A user's profile information",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user's unique identifier"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "The user's email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "The user's display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "format": "uri",
+          "description": "The user's profile picture URL"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"],
+          "description": "The user's role"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the user profile was created"
+        }
+      },
+      "required": ["uid", "email", "role", "createdAt"]
+    },
+    "SavedSignal": {
+      "title": "SavedSignal",
+      "description": "A signal saved by a user",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The signal's unique identifier"
+        },
+        "authorUid": {
+          "type": "string",
+          "description": "The UID of the user who saved the signal"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the signal"
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the signal"
+        },
+        "data": {
+          "type": "string",
+          "description": "JSON stringified array of signal data points"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the signal was saved"
+        }
+      },
+      "required": ["id", "authorUid", "name", "data", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Stores user profiles"
+    },
+    "/signals/{signalId}": {
+      "schema": {
+        "$ref": "#/entities/SavedSignal"
+      },
+      "description": "Stores signals saved by users"
+    }
+  }
+}
