@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getSignalById } from '../lib/signal-data';
+import { getSignalById, getSignalLibrary } from '../lib/signal-data';
 import { WaveformView } from '../components/WaveformView';
 import { SpectrogramView } from '../components/SpectrogramView';
 import { SpectrumView } from '../components/SpectrumView';
 import { useAppStore } from '../lib/store';
-import { ArrowLeft, Activity, Zap, Info, ShieldAlert, Binary, Volume2, Square, Radio, Wifi, Image as ImageIcon, MessageSquare, Crosshair, Play, Pause, FastForward, SlidersHorizontal, Download } from 'lucide-react';
+import { ArrowLeft, Activity, Zap, Info, ShieldAlert, Binary, Volume2, Square, Radio, Wifi, Image as ImageIcon, MessageSquare, Crosshair, Play, Pause, FastForward, SlidersHorizontal, Download, Network } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { analyzeSignal } from '../lib/signal-processing';
-import { DecoderModal } from '../components/DecoderModal';
 import { ScientificNeuralModal } from '../components/ScientificNeuralModal';
 import { SonificationStudio, generateSonifiedAudioURL } from '../components/SonificationStudio';
 import { Brain } from 'lucide-react';
@@ -31,7 +30,6 @@ export function Analyzer() {
 
   // Modals state
   const [isScientificModalOpen, setIsScientificModalOpen] = useState(false);
-  const [isDecoderModalOpen, setIsDecoderModalOpen] = useState(false);
   const [isSonificationStudioOpen, setIsSonificationStudioOpen] = useState(false);
   
   const signal = id ? getSignalById(id) : undefined;
@@ -111,9 +109,25 @@ export function Analyzer() {
         <button onClick={() => navigate(-1)} className="p-2 -ml-2 text-slate-400 hover:text-slate-100 transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <div>
-          <h1 className="font-semibold text-slate-100 leading-tight tracking-tight uppercase italic text-sm">{signal.metadata.name} <span className="text-emerald-500 font-mono ml-2 opacity-50">ANALYSIS_MODE</span></h1>
-          <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500">{signal.metadata.category}</span>
+        <div className="flex-grow min-w-0 pr-4">
+          <select
+            value={signal.metadata.id}
+            onChange={(e) => navigate(`/analyzer/${e.target.value}`)}
+            className="w-full bg-slate-900 text-slate-100 font-semibold leading-tight tracking-tight uppercase italic text-sm outline-none border border-slate-800 hover:border-slate-600 focus:border-indigo-500 transition-colors cursor-pointer appearance-none px-3 py-1.5 rounded-lg truncate shadow-sm overflow-hidden text-ellipsis"
+            style={{ textOverflow: 'ellipsis' }}
+          >
+            {getSignalLibrary().map((s) => (
+              <option key={s.metadata.id} value={s.metadata.id} className="bg-slate-900 text-slate-300 not-italic normal-case font-mono text-xs">
+                {s.metadata.name} [{s.metadata.category}]
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2 mt-1 px-1">
+            <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500 truncate">{signal.metadata.category}</span>
+            <span className="text-[10px] text-emerald-500 font-mono opacity-60 flex items-center gap-1">
+              <Activity className="w-3 h-3" /> ANALYSIS_MODE
+            </span>
+          </div>
         </div>
       </header>
 
@@ -307,11 +321,18 @@ export function Analyzer() {
             <span className="text-[10px] uppercase font-bold tracking-widest">Scientific</span>
           </button>
           <button 
-            onClick={() => setIsDecoderModalOpen(true)}
+            onClick={() => navigate(`/telemetry/${signal.metadata.id}`)}
             className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 text-slate-300 p-4 rounded-xl flex flex-col items-center gap-2 transition-all group"
           >
             <Binary className="w-6 h-6 text-emerald-400 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] uppercase font-bold tracking-widest">Binary</span>
+            <span className="text-[10px] uppercase font-bold tracking-widest text-center leading-tight">Wow! &<br />Binary</span>
+          </button>
+          <button 
+            onClick={() => navigate(`/interferometry/${signal.metadata.id}`)}
+            className="bg-slate-900 border border-slate-800 hover:border-emerald-500/50 text-slate-300 p-4 rounded-xl flex flex-col items-center gap-2 transition-all group"
+          >
+            <Network className="w-6 h-6 text-indigo-400 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] uppercase font-bold tracking-widest text-center leading-tight">Multi<br />Sensor PCA</span>
           </button>
           <button 
             onClick={() => navigate(`/anomaly-detector/${signal.metadata.id}`)}
@@ -342,13 +363,6 @@ export function Analyzer() {
         <ScientificNeuralModal 
           isOpen={isScientificModalOpen}
           onClose={() => setIsScientificModalOpen(false)}
-          signalData={signal.data}
-          signalName={signal.metadata.name}
-        />
-
-        <DecoderModal 
-          isOpen={isDecoderModalOpen}
-          onClose={() => setIsDecoderModalOpen(false)}
           signalData={signal.data}
           signalName={signal.metadata.name}
         />

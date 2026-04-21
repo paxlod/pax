@@ -26,6 +26,9 @@ const HydrogenRadio = lazy(() => import('./pages/HydrogenRadio').then(m => ({ de
 const AnomalyDetector = lazy(() => import('./pages/AnomalyDetector').then(m => ({ default: m.AnomalyDetector })));
 const AiDiscoveries = lazy(() => import('./pages/AiDiscoveries').then(m => ({ default: m.AiDiscoveries })));
 
+const TelemetryDecoder = lazy(() => import('./pages/TelemetryDecoder').then(m => ({ default: m.TelemetryDecoder })));
+const MultivariatePCA = lazy(() => import('./pages/MultivariatePCA').then(m => ({ default: m.MultivariatePCA })));
+
 const LoadingFallback = () => (
   <div className="flex items-center justify-center min-h-screen bg-slate-950 text-emerald-500 font-mono">
     <div className="animate-pulse tracking-widest text-xs uppercase">Initialising Neural Link...</div>
@@ -55,7 +58,9 @@ export default function App() {
               <Route path="/analyzer/:id" element={<Analyzer />} />
               <Route path="/decoder" element={<ImageDecoder />} />
               <Route path="/decoder/:id" element={<ImageDecoder />} />
+              <Route path="/telemetry/:id" element={<TelemetryDecoder />} />
               <Route path="/golden/:id" element={<GoldenDecoder />} />
+              <Route path="/interferometry/:id" element={<MultivariatePCA />} />
               <Route path="/detector/:id" element={<PatternDetector />} />
               <Route path="/result/:id" element={<ResultDetail />} />
             </Routes>

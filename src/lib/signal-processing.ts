@@ -817,3 +817,101 @@ export function cleanSignal(data: number[], targetPeriods: number[] = [1, 2, 10]
   
   return normalizeSignal(cleaned);
 }
+
+// -----------------------------------------------------
+// MULTIVARIATE INTERFEROMETRY (PCA & Welch PSD)
+// -----------------------------------------------------
+
+/**
+ * Extracts the single principal component (PC1) from N parallel sensor channels.
+ * Used for mSSA-style spatial filtering to find shared variance.
+ */
+export function extractPrincipalComponent(channels: number[][]): number[] {
+  if (!channels || channels.length === 0 || channels[0].length === 0) return [];
+  const numChannels = channels.length;
+  const N = channels[0].length;
+  
+  // 1. Mean center the data
+  const means = channels.map(ch => ch.reduce((a, b) => a + b, 0) / N);
+  const centered = channels.map((ch, i) => ch.map(val => val - means[i]));
+  
+  // 2. Compute Covariance Matrix
+  const C = Array(numChannels).fill(0).map(() => Array(numChannels).fill(0));
+  for (let i = 0; i < numChannels; i++) {
+    for (let j = 0; j < numChannels; j++) {
+      let sum = 0;
+      for (let k = 0; k < N; k++) sum += centered[i][k] * centered[j][k];
+      C[i][j] = sum / (N - 1);
+    }
+  }
+  
+  // 3. Power Iteration to find largest eigenvector
+  let v = Array(numChannels).fill(1 / Math.sqrt(numChannels));
+  for (let iter = 0; iter < 20; iter++) {
+    const vNew = Array(numChannels).fill(0);
+    for (let i = 0; i < numChannels; i++) {
+      for (let j = 0; j < numChannels; j++) {
+        vNew[i] += C[i][j] * v[j];
+      }
+    }
+    const norm = Math.sqrt(vNew.reduce((sum, val) => sum + val * val, 0));
+    v = vNew.map(val => val / norm);
+  }
+  
+  // 4. Project original data onto the principal component
+  const pc1 = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    let val = 0;
+    for (let i = 0; i < numChannels; i++) {
+      val += centered[i][k] * v[i];
+    }
+    pc1[k] = val;
+  }
+  
+  return Array.from(pc1);
+}
+
+/**
+ * Calculates a simplified periodogram roughly equivalent to scipy.signal.welch
+ * without overlap, utilizing a discrete fourier transform.
+ */
+export function calculateWelchPSD(data: number[], fs: number = 1000, nperseg: number = 256): { frequencies: number[], psd: number[] } {
+  if (!data || data.length === 0) return { frequencies: [], psd: [] };
+  
+  let numSegments = Math.floor(data.length / nperseg);
+  if (numSegments === 0) numSegments = 1;
+  const actualNperseg = Math.min(nperseg, data.length);
+  
+  const psdLength = Math.floor(actualNperseg / 2) + 1;
+  const psd = new Float32Array(psdLength);
+  
+  // Hanning window
+  const window = new Float32Array(actualNperseg);
+  for(let i = 0; i < actualNperseg; i++) {
+     window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (actualNperseg - 1)));
+  }
+  
+  for (let seg = 0; seg < numSegments; seg++) {
+     const start = seg * actualNperseg;
+     for (let k = 0; k < psdLength; k++) {
+         let re = 0, im = 0;
+         for (let n = 0; n < actualNperseg; n++) {
+             const val = (data[start + n] || 0) * window[n];
+             const angle = (2 * Math.PI * k * n) / actualNperseg;
+             re += val * Math.cos(angle);
+             im -= val * Math.sin(angle);
+         }
+         psd[k] += (re * re + im * im);
+     }
+  }
+  
+  const frequencies = [];
+  const resultPsd = [];
+  for (let k = 0; k < psdLength; k++) {
+      frequencies.push((k * fs) / actualNperseg);
+      // Average the power density across segments
+      resultPsd.push(psd[k] / numSegments);
+  }
+  
+  return { frequencies, psd: resultPsd };
+}

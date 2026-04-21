@@ -263,6 +263,54 @@ export async function analyzeSignalWithAI(
   }
 }
 
+export async function generateVisualSignature(
+  signalName: string,
+  base64Image: string
+): Promise<{ title: string; signatureSvg: string; description: string } | null> {
+  try {
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const imagePart = {
+      inlineData: {
+        mimeType: "image/png",
+        data: base64Image.split(',')[1],
+      },
+    };
+
+    const prompt = `You are Nexus, analyzing a decoded extraterrestrial or astronomical image.
+Generate an abstract, stylized "visual signature" in pure SVG format (using elements like <path>, <circle>, <rect>, etc. with appropriate viewBox, preferably 400x400) that artisticly interprets the structure, anomalies, or significance of this image. Ensure the SVG code is clean, visually striking, and uses a dark/hacker aesthetic color palette (e.g., emeralds, indigos, dark slates).
+Also provide a short cryptic title and a brief description of what this signature represents.
+
+Return as JSON.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview", // Use a capable model for SVG generation
+      contents: {
+        parts: [imagePart, { text: prompt }],
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            signatureSvg: { type: Type.STRING, description: "The raw SVG string, starting with <svg> and ending with </svg>." },
+            description: { type: Type.STRING },
+          },
+          required: ["title", "signatureSvg", "description"],
+        },
+      },
+    });
+
+    if (response.text) {
+      return JSON.parse(response.text.trim());
+    }
+    return null;
+  } catch (error) {
+    console.error("AI Signature Generation Error:", error);
+    return null;
+  }
+}
+
 export async function detectImageInSignal(
   base64Images: string[]
 ): Promise<{ bestIndex: number; reasoning: string } | null> {

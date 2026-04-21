@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { generateSpectrogram } from '../lib/signal-processing';
-import { Settings, X, RefreshCw, ZoomIn, ZoomOut, Move } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Settings2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface SpectrogramViewProps {
   data: number[];
@@ -27,6 +27,11 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
     setTransform({ k: 1, x: 0, y: 0 });
   }, []);
 
+  const spectrogramData = useMemo(() => {
+    if (data.length === 0) return [];
+    return generateSpectrogram(data, windowSize, overlap);
+  }, [data, windowSize, overlap]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -34,6 +39,7 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Use parent element's internal width so we don't need a ResizeObserver on a variable wrapper
     const resizeObserver = new ResizeObserver(entries => {
       for (let entry of entries) {
         const { width, height } = entry.contentRect;
@@ -49,57 +55,56 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
     }
 
     const draw = () => {
-      if (data.length === 0) return;
-      
-      const spectrogram = generateSpectrogram(data, windowSize, overlap);
-      if (spectrogram.length === 0) return;
+      if (spectrogramData.length === 0) return;
 
-      const timeSteps = spectrogram.length;
-      const freqBins = spectrogram[0].length;
+      const timeSteps = spectrogramData.length;
+      const freqBins = spectrogramData[0].length;
       
       const cellWidth = canvas.width / timeSteps;
       const cellHeight = canvas.height / freqBins;
 
-      // Find max magnitude for color scaling
       let maxMag = 0;
       for (let i = 0; i < timeSteps; i++) {
         for (let j = 0; j < freqBins; j++) {
-          if (spectrogram[i][j] > maxMag) maxMag = spectrogram[i][j];
+           if (spectrogramData[i][j] > maxMag) maxMag = spectrogramData[i][j];
         }
       }
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save();
       
-      // Apply transformations
       ctx.translate(transform.x, transform.y);
       ctx.scale(transform.k, transform.k);
 
-      // Optimization: Only draw what's visible
-      // For now, let's just draw everything and see performance
+      // We need to keep cell width calculation relative to the original scale
       for (let i = 0; i < timeSteps; i++) {
+        // Optimization: if it's currently completely out of view, don't draw it.
+        const currentX = (i * cellWidth * transform.k) + transform.x;
+        if (currentX > canvas.width || currentX + (cellWidth * transform.k) < 0) continue;
+
         for (let j = 0; j < freqBins; j++) {
-          const mag = spectrogram[i][j];
+          const currentY = transform.y + (canvas.height - (j + 1) * cellHeight) * transform.k;
+          if (currentY > canvas.height || currentY + (cellHeight * transform.k) < 0) continue;
+
+          const mag = spectrogramData[i][j];
           const normalized = maxMag > 0 ? mag / maxMag : 0;
           
-          // Viridis-like colormap approximation
           const r = Math.floor(255 * Math.min(1, Math.max(0, 3.2 * normalized - 1.5)));
           const g = Math.floor(255 * Math.min(1, Math.max(0, -2.5 * Math.abs(normalized - 0.5) + 1.2)));
           const b = Math.floor(255 * Math.min(1, Math.max(0, 2.5 * (0.5 - normalized))));
           
           ctx.fillStyle = `rgb(${r},${g},${b})`;
           // Draw from bottom up
-          ctx.fillRect(i * cellWidth, canvas.height - (j + 1) * cellHeight, Math.ceil(cellWidth), Math.ceil(cellHeight));
+          ctx.fillRect(i * cellWidth, canvas.height - (j + 1) * cellHeight, cellWidth + 0.5, cellHeight + 0.5);
         }
       }
-      
       ctx.restore();
     };
 
     draw();
 
     return () => resizeObserver.disconnect();
-  }, [data, windowSize, overlap, transform]);
+  }, [spectrogramData, transform]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -109,7 +114,6 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
     
     const newK = Math.min(Math.max(transform.k * factor, 0.5), 20);
     
-    // Zoom relative to mouse position
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
@@ -147,116 +151,126 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
     setIsDragging(false);
   };
 
+  const hopSize = windowSize - overlap;
+  const timeResolution = data.length > 0 ? (hopSize / data.length).toFixed(6) : "0";
+
   return (
-    <div 
-      ref={containerRef}
-      style={{ width, height }} 
-      className={cn(
-        "relative w-full overflow-hidden rounded-lg bg-slate-900 border border-slate-800 group",
-        isDragging ? "cursor-grabbing" : "cursor-crosshair"
-      )}
-      onWheel={handleWheel}
-      onMouseDown={handleMouseDown}
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
-      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
-      
-      <div className="absolute top-2 right-2 flex flex-col gap-2 z-20">
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          className={cn(
-            "p-1.5 rounded-md transition-all",
-            "bg-slate-950/50 hover:bg-slate-950 text-slate-400 hover:text-slate-100 border border-slate-800",
-            showSettings && "bg-slate-800 text-slate-100"
+    <div className="space-y-4 w-full h-full">
+      <div className="relative bg-slate-900 border border-slate-800 rounded-xl p-4 overflow-hidden h-full flex flex-col">
+        <div className="flex justify-between items-center mb-4 flex-shrink-0">
+          <h3 className="text-sm font-medium text-slate-300">Spectral Topology (Spectrogram)</h3>
+          <div className="flex items-center gap-2">
+            <button
+               onClick={resetView}
+               className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors"
+               title="Reset View"
+            >
+               <RefreshCw size={16} />
+            </button>
+            <button 
+              onClick={() => setShowSettings(!showSettings)}
+              className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors"
+            >
+              <Settings2 size={16} />
+            </button>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {showSettings && (
+            <motion.div 
+               initial={{ opacity: 0, height: 0 }}
+               animate={{ opacity: 1, height: 'auto' }}
+               exit={{ opacity: 0, height: 0 }}
+               className="mb-4 overflow-hidden flex-shrink-0"
+            >
+               <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700 space-y-4">
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1.5 flex justify-between">
+                     FFT Window Size
+                     <span className="text-emerald-500 font-mono">{windowSize}</span>
+                   </label>
+                   <input 
+                     type="range"
+                     min="64"
+                     max="2048"
+                     step="64"
+                     value={windowSize}
+                     onChange={(e) => {
+                       const newSize = Number(e.target.value);
+                       setWindowSize(newSize);
+                       if (overlap >= newSize) setOverlap(Math.floor(newSize / 2));
+                     }}
+                     className="w-full accent-emerald-500"
+                   />
+                   <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                     <span>64</span>
+                     <span>1024</span>
+                     <span>2048</span>
+                   </div>
+                 </div>
+
+                 <div>
+                   <label className="text-xs text-slate-400 mb-1.5 flex justify-between">
+                     Window Overlap
+                     <span className="text-emerald-500 font-mono">{overlap}</span>
+                   </label>
+                   <input 
+                     type="range"
+                     min="0"
+                     max={windowSize - 1}
+                     step="16"
+                     value={overlap}
+                     onChange={(e) => setOverlap(Number(e.target.value))}
+                     className="w-full accent-emerald-500"
+                   />
+                   <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                     <span>0</span>
+                     <span>{Math.floor(windowSize / 2)}</span>
+                     <span>{windowSize - 1}</span>
+                   </div>
+                 </div>
+               </div>
+            </motion.div>
           )}
-          title="Spectrogram Settings"
-        >
-          {showSettings ? <X size={16} /> : <Settings size={16} />}
-        </button>
+        </AnimatePresence>
 
-        <button
-          onClick={resetView}
-          className="p-1.5 rounded-md bg-slate-950/50 hover:bg-slate-950 text-slate-400 hover:text-slate-100 border border-slate-800 transition-all"
-          title="Reset View"
-        >
-          <RefreshCw size={16} />
-        </button>
+        <div className="flex-1 min-h-[150px] relative w-full border border-slate-800 rounded bg-black group overflow-hidden">
+           <div 
+             ref={containerRef}
+             className={cn(
+               "absolute inset-0 w-full h-full",
+               isDragging ? "cursor-grabbing" : "cursor-crosshair"
+             )}
+             onWheel={handleWheel}
+             onMouseDown={handleMouseDown}
+             onMouseMove={handleMouseMove}
+             onMouseUp={handleMouseUp}
+             onMouseLeave={handleMouseUp}
+           >
+             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+             
+             {transform.k !== 1 && (
+               <div className="absolute top-2 left-2 px-2 py-1 rounded bg-blue-500/20 backdrop-blur-sm border border-blue-500/30 pointer-events-none z-10">
+                 <span className="text-[10px] font-mono text-blue-400">
+                   Zoom: {transform.k.toFixed(1)}x
+                 </span>
+               </div>
+             )}
+           </div>
+        </div>
       </div>
-
-      {/* Zoom/Pan Indicator */}
-      {transform.k !== 1 && (
-        <div className="absolute top-2 left-2 px-2 py-1 rounded bg-blue-500/20 backdrop-blur-sm border border-blue-500/30 pointer-events-none z-10">
-          <span className="text-[10px] font-mono text-blue-400">
-            Zoom: {transform.k.toFixed(1)}x
-          </span>
+      
+      <div className="grid grid-cols-2 gap-3 flex-shrink-0">
+        <div className="bg-slate-900/50 border border-slate-800/50 rounded-lg p-3">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Temporal Resolution</div>
+          <div className="text-sm font-mono text-slate-300">{timeResolution} units/step</div>
         </div>
-      )}
-
-      <AnimatePresence>
-        {showSettings && (
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            className="absolute top-12 right-2 w-48 bg-slate-950/90 backdrop-blur-md border border-slate-800 rounded-lg p-3 z-20 shadow-xl"
-          >
-            <div className="space-y-3">
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Window Size</label>
-                  <span className="text-xs font-mono text-blue-400">{windowSize}</span>
-                </div>
-                <input
-                  type="range"
-                  min="64"
-                  max="1024"
-                  step="64"
-                  value={windowSize}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    setWindowSize(val);
-                    if (overlap >= val) setOverlap(val - 1);
-                  }}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-1">
-                  <label className="text-[10px] uppercase tracking-wider font-semibold text-slate-500">Overlap</label>
-                  <span className="text-xs font-mono text-blue-400">{overlap}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max={windowSize - 1}
-                  step="1"
-                  value={overlap}
-                  onChange={(e) => setOverlap(parseInt(e.target.value))}
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-                />
-              </div>
-
-              <div className="pt-2 border-top border-slate-800">
-                <p className="text-[9px] text-slate-600 leading-tight italic">
-                  Higher window size increases frequency resolution. Overlap improves temporal smoothness.
-                </p>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Legend / Info Overlay */}
-      {!showSettings && (
-        <div className="absolute bottom-2 left-2 px-2 py-1 rounded bg-slate-950/40 backdrop-blur-sm border border-slate-800/50 pointer-events-none">
-          <span className="text-[10px] font-mono text-slate-500">
-            FFT: {windowSize} | Overlap: {overlap}
-          </span>
+        <div className="bg-slate-900/50 border border-slate-800/50 rounded-lg p-3">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Freq Bins / Hop</div>
+          <div className="text-sm font-mono text-slate-300">{Math.floor(windowSize / 2)} / {hopSize}</div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
