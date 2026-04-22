@@ -100,6 +100,21 @@ export function Home() {
             <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-slate-300 transition-colors" />
           </div>
         </Link>
+        
+        <Link to="/anomalous-transient" className="block bg-orange-900/40 hover:bg-orange-900/60 border border-orange-500/30 rounded-xl p-4 transition-colors group">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-500/20 rounded-lg text-orange-400 group-hover:text-orange-300 transition-colors">
+                <Zap className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-200">X-7 Decryption</h3>
+                <p className="text-xs text-slate-400 italic">Anomalous Transient Telemetry Matrix</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-slate-300 transition-colors" />
+          </div>
+        </Link>
       </section>
 
       {recents.length > 0 && (

@@ -28,6 +28,7 @@ const AiDiscoveries = lazy(() => import('./pages/AiDiscoveries').then(m => ({ de
 
 const TelemetryDecoder = lazy(() => import('./pages/TelemetryDecoder').then(m => ({ default: m.TelemetryDecoder })));
 const MultivariatePCA = lazy(() => import('./pages/MultivariatePCA').then(m => ({ default: m.MultivariatePCA })));
+const AnomalousTransientDecoder = lazy(() => import('./pages/AnomalousTransientDecoder').then(m => ({ default: m.AnomalousTransientDecoder })));
 
 const LoadingFallback = () => (
   <div className="flex items-center justify-center min-h-screen bg-slate-950 text-emerald-500 font-mono">
@@ -61,6 +62,7 @@ export default function App() {
               <Route path="/telemetry/:id" element={<TelemetryDecoder />} />
               <Route path="/golden/:id" element={<GoldenDecoder />} />
               <Route path="/interferometry/:id" element={<MultivariatePCA />} />
+              <Route path="/anomalous-transient" element={<AnomalousTransientDecoder />} />
               <Route path="/detector/:id" element={<PatternDetector />} />
               <Route path="/result/:id" element={<ResultDetail />} />
             </Routes>

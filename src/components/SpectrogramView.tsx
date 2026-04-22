@@ -1,8 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { generateSpectrogram } from '../lib/signal-processing';
 import { Settings2, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { Canvas } from '@react-three/fiber';
+import * as THREE from 'three';
 
 interface SpectrogramViewProps {
   data: number[];
@@ -11,20 +13,65 @@ interface SpectrogramViewProps {
   windowSize?: number;
 }
 
+const SpectrogramMaterial = {
+  uniforms: {
+    uDataTexture: { value: null },
+    uMaxMag: { value: 1.0 },
+    uZoom: { value: 1.0 },
+    uOffset: { value: new THREE.Vector2(0, 0) }
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    uniform float uZoom;
+    uniform vec2 uOffset;
+    void main() {
+      // Basic scaling and translating UVs for zoom/pan
+      vUv = uv * uZoom + uOffset;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D uDataTexture;
+    uniform float uMaxMag;
+    varying vec2 vUv;
+    void main() {
+      // Discard pixels outside bounds
+      if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) {
+         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+         return;
+      }
+      
+      // Sample the texture
+      float mag = texture2D(uDataTexture, vUv).r;
+      float normalized = clamp(mag / uMaxMag, 0.0, 1.0);
+      
+      // Dynamic SETI Color Mapping: Deep space blue -> Anomaly Green/Pink
+      vec3 color = vec3(
+        clamp(3.2 * normalized - 1.5, 0.0, 1.0), // Red channel (peaks)
+        clamp(-2.5 * abs(normalized - 0.5) + 1.2, 0.0, 1.0), // Green channel (mids)
+        clamp(2.5 * (0.5 - normalized), 0.0, 1.0) // Blue channel (base noise)
+      );
+      gl_FragColor = vec4(color, 1.0);
+    }
+  `
+};
+
 export function SpectrogramView({ data, width = '100%', height = 200, windowSize: initialWindowSize = 256 }: SpectrogramViewProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [windowSize, setWindowSize] = useState(initialWindowSize);
   const [overlap, setOverlap] = useState(Math.floor(initialWindowSize / 2));
   
-  // Zoom and Pan state
-  const [transform, setTransform] = useState({ k: 1, x: 0, y: 0 });
+  // Transform states (using React states so it triggers re-renders for the uniforms)
+  const [zoom, setZoom] = useState(1.0);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  
   const [isDragging, setIsDragging] = useState(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
   const resetView = useCallback(() => {
-    setTransform({ k: 1, x: 0, y: 0 });
+    setZoom(1.0);
+    setOffset({ x: 0, y: 0 });
   }, []);
 
   const spectrogramData = useMemo(() => {
@@ -32,116 +79,67 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
     return generateSpectrogram(data, windowSize, overlap);
   }, [data, windowSize, overlap]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const { dataTexture, maxMag, texWidth, texHeight } = useMemo(() => {
+    if (spectrogramData.length === 0) return { dataTexture: null, maxMag: 1, texWidth: 0, texHeight: 0 };
     
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Use parent element's internal width so we don't need a ResizeObserver on a variable wrapper
-    const resizeObserver = new ResizeObserver(entries => {
-      for (let entry of entries) {
-        const { width, height } = entry.contentRect;
-        canvas.width = width;
-        canvas.height = height;
-        draw();
+    const w = spectrogramData.length;
+    const h = spectrogramData[0].length;
+    const size = w * h;
+    const flatData = new Float32Array(size);
+    
+    let max = 0;
+    // Map 2D array [time][freq] to 1D texture for WebGL
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) {
+         const val = spectrogramData[x][y];
+         if (val > max) max = val;
+         // WebGL textures sample from bottom-left generally,
+         // We'll write data linearly. 
+         flatData[y * w + x] = val;
       }
-    });
-    
-    const parent = canvas.parentElement;
-    if (parent) {
-      resizeObserver.observe(parent);
     }
+    
+    const texture = new THREE.DataTexture(flatData, w, h, THREE.RedFormat, THREE.FloatType);
+    texture.needsUpdate = true;
+    
+    return { dataTexture: texture, maxMag: max > 0 ? max : 1, texWidth: w, texHeight: h };
+  }, [spectrogramData]);
 
-    const draw = () => {
-      if (spectrogramData.length === 0) return;
-
-      const timeSteps = spectrogramData.length;
-      const freqBins = spectrogramData[0].length;
-      
-      const cellWidth = canvas.width / timeSteps;
-      const cellHeight = canvas.height / freqBins;
-
-      let maxMag = 0;
-      for (let i = 0; i < timeSteps; i++) {
-        for (let j = 0; j < freqBins; j++) {
-           if (spectrogramData[i][j] > maxMag) maxMag = spectrogramData[i][j];
-        }
-      }
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.save();
-      
-      ctx.translate(transform.x, transform.y);
-      ctx.scale(transform.k, transform.k);
-
-      // We need to keep cell width calculation relative to the original scale
-      for (let i = 0; i < timeSteps; i++) {
-        // Optimization: if it's currently completely out of view, don't draw it.
-        const currentX = (i * cellWidth * transform.k) + transform.x;
-        if (currentX > canvas.width || currentX + (cellWidth * transform.k) < 0) continue;
-
-        for (let j = 0; j < freqBins; j++) {
-          const currentY = transform.y + (canvas.height - (j + 1) * cellHeight) * transform.k;
-          if (currentY > canvas.height || currentY + (cellHeight * transform.k) < 0) continue;
-
-          const mag = spectrogramData[i][j];
-          const normalized = maxMag > 0 ? mag / maxMag : 0;
-          
-          const r = Math.floor(255 * Math.min(1, Math.max(0, 3.2 * normalized - 1.5)));
-          const g = Math.floor(255 * Math.min(1, Math.max(0, -2.5 * Math.abs(normalized - 0.5) + 1.2)));
-          const b = Math.floor(255 * Math.min(1, Math.max(0, 2.5 * (0.5 - normalized))));
-          
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
-          // Draw from bottom up
-          ctx.fillRect(i * cellWidth, canvas.height - (j + 1) * cellHeight, cellWidth + 0.5, cellHeight + 0.5);
-        }
-      }
-      ctx.restore();
+  const uniforms = useMemo(() => {
+    return {
+      uDataTexture: { value: dataTexture },
+      uMaxMag: { value: maxMag },
+      uZoom: { value: 1.0 / zoom },
+      // Translate offset back to 0..1 UV space based on zoom
+      uOffset: { value: new THREE.Vector2(-offset.x / (texWidth || 1), offset.y / (texHeight || 1)) }
     };
-
-    draw();
-
-    return () => resizeObserver.disconnect();
-  }, [spectrogramData, transform]);
+  }, [dataTexture, maxMag, zoom, offset, texWidth, texHeight]);
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const zoomSpeed = 0.001;
     const delta = -e.deltaY;
     const factor = Math.pow(1.1, delta / 100);
-    
-    const newK = Math.min(Math.max(transform.k * factor, 0.5), 20);
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    const newX = mouseX - (mouseX - transform.x) * (newK / transform.k);
-    const newY = mouseY - (mouseY - transform.y) * (newK / transform.k);
-    
-    setTransform({ k: newK, x: newX, y: newY });
+    const newZ = Math.min(Math.max(zoom * factor, 0.5), 20);
+    setZoom(newZ);
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left click
+    if (e.button !== 0) return;
     setIsDragging(true);
     lastMousePos.current = { x: e.clientX, y: e.clientY };
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    
+    if (!isDragging || !containerRef.current) return;
     const dx = e.clientX - lastMousePos.current.x;
     const dy = e.clientY - lastMousePos.current.y;
     
-    setTransform(prev => ({
-      ...prev,
-      x: prev.x + dx,
-      y: prev.y + dy
+    // Scale delta relative to container dimensions
+    const rect = containerRef.current.getBoundingClientRect();
+    
+    setOffset(prev => ({
+      x: prev.x + (dx / rect.width) * (texWidth / zoom),
+      y: prev.y + (dy / rect.height) * (texHeight / zoom)
     }));
     
     lastMousePos.current = { x: e.clientX, y: e.clientY };
@@ -155,10 +153,10 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
   const timeResolution = data.length > 0 ? (hopSize / data.length).toFixed(6) : "0";
 
   return (
-    <div className="space-y-4 w-full h-full">
-      <div className="relative bg-slate-900 border border-slate-800 rounded-xl p-4 overflow-hidden h-full flex flex-col">
+    <div className="space-y-4 w-full h-full pb-4">
+      <div className="relative bg-slate-900 border border-slate-800 rounded-xl p-4 overflow-hidden h-full flex flex-col min-h-[300px]">
         <div className="flex justify-between items-center mb-4 flex-shrink-0">
-          <h3 className="text-sm font-medium text-slate-300">Spectral Topology (Spectrogram)</h3>
+          <h3 className="text-sm font-medium text-slate-300">Spectral Topology (GPU Spectrogram)</h3>
           <div className="flex items-center gap-2">
             <button
                onClick={resetView}
@@ -191,10 +189,7 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
                      <span className="text-emerald-500 font-mono">{windowSize}</span>
                    </label>
                    <input 
-                     type="range"
-                     min="64"
-                     max="2048"
-                     step="64"
+                     type="range" min="64" max="2048" step="64"
                      value={windowSize}
                      onChange={(e) => {
                        const newSize = Number(e.target.value);
@@ -203,11 +198,6 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
                      }}
                      className="w-full accent-emerald-500"
                    />
-                   <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                     <span>64</span>
-                     <span>1024</span>
-                     <span>2048</span>
-                   </div>
                  </div>
 
                  <div>
@@ -216,26 +206,18 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
                      <span className="text-emerald-500 font-mono">{overlap}</span>
                    </label>
                    <input 
-                     type="range"
-                     min="0"
-                     max={windowSize - 1}
-                     step="16"
+                     type="range" min="0" max={windowSize - 1} step="16"
                      value={overlap}
                      onChange={(e) => setOverlap(Number(e.target.value))}
                      className="w-full accent-emerald-500"
                    />
-                   <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                     <span>0</span>
-                     <span>{Math.floor(windowSize / 2)}</span>
-                     <span>{windowSize - 1}</span>
-                   </div>
                  </div>
                </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        <div className="flex-1 min-h-[150px] relative w-full border border-slate-800 rounded bg-black group overflow-hidden">
+        <div className="flex-1 relative w-full border border-slate-800 rounded bg-black group overflow-hidden">
            <div 
              ref={containerRef}
              className={cn(
@@ -248,12 +230,25 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
              onMouseUp={handleMouseUp}
              onMouseLeave={handleMouseUp}
            >
-             <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+             {dataTexture && (
+               <Canvas orthographic camera={{ position: [0, 0, 1], zoom: 1 }}>
+                 <mesh>
+                   {/* Plane that fills the screen in clip space using orthographic 1-to-1 bounds if we scale it right, 
+                       or we just use a plane scale 2 to fill canonical clip volume */}
+                   <planeGeometry args={[2, 2]} />
+                   <shaderMaterial 
+                     attach="material" 
+                     args={[SpectrogramMaterial]} 
+                     uniforms={uniforms} 
+                   />
+                 </mesh>
+               </Canvas>
+             )}
              
-             {transform.k !== 1 && (
+             {zoom !== 1.0 && (
                <div className="absolute top-2 left-2 px-2 py-1 rounded bg-blue-500/20 backdrop-blur-sm border border-blue-500/30 pointer-events-none z-10">
                  <span className="text-[10px] font-mono text-blue-400">
-                   Zoom: {transform.k.toFixed(1)}x
+                   Zoom: {zoom.toFixed(1)}x
                  </span>
                </div>
              )}
