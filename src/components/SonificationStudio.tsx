@@ -44,18 +44,99 @@ export function encodeWAV(samples: Float32Array, sampleRate: number): DataView {
   return view;
 }
 
+class Biquad {
+  b0: number = 0; b1: number = 0; b2: number = 0;
+  a1: number = 0; a2: number = 0;
+  x1: number = 0; x2: number = 0;
+  y1: number = 0; y2: number = 0;
+
+  setCookbook(type: 'lowpass' | 'highpass', freq: number, q: number, sampleRate: number) {
+    if (freq > sampleRate / 2 - 10) freq = sampleRate / 2 - 10;
+    if (freq < 10) freq = 10;
+
+    const w0 = 2 * Math.PI * freq / sampleRate;
+    const alpha = Math.sin(w0) / (2 * q);
+    const cosw0 = Math.cos(w0);
+    let raw_b0, raw_b1, raw_b2, raw_a0, raw_a1, raw_a2;
+
+    if (type === 'lowpass') {
+      raw_b0 = (1 - cosw0) / 2;
+      raw_b1 = 1 - cosw0;
+      raw_b2 = (1 - cosw0) / 2;
+      raw_a0 = 1 + alpha;
+      raw_a1 = -2 * cosw0;
+      raw_a2 = 1 - alpha;
+    } else { // highpass
+      raw_b0 = (1 + cosw0) / 2;
+      raw_b1 = -(1 + cosw0);
+      raw_b2 = (1 + cosw0) / 2;
+      raw_a0 = 1 + alpha;
+      raw_a1 = -2 * cosw0;
+      raw_a2 = 1 - alpha;
+    }
+
+    this.b0 = raw_b0 / raw_a0;
+    this.b1 = raw_b1 / raw_a0;
+    this.b2 = raw_b2 / raw_a0;
+    this.a1 = raw_a1 / raw_a0;
+    this.a2 = raw_a2 / raw_a0;
+  }
+
+  process(x: number): number {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1;
+    this.x1 = x;
+    this.y2 = this.y1;
+    this.y1 = y;
+    return y;
+  }
+}
+
+export interface SonificationParams {
+  mode: 'direct' | 'fm' | 'am';
+  durationSec: number;
+  carrierOsc: number;
+  fmDepth: number;
+  
+  // ADSR
+  attack: number;
+  decay: number;
+  sustain: number;
+  release: number;
+  
+  // LFO
+  lfoRate: number;
+  lfoDepth: number;
+  lfoTarget: 'none' | 'pitch' | 'amp' | 'filter';
+  
+  // Filter
+  filterType: 'none' | 'lowpass' | 'highpass';
+  filterFreq: number;
+  filterQ: number;
+}
+
 export function generateSonifiedAudioURL(
   data: number[], 
-  durationSec: number, 
-  mode: 'direct' | 'fm' | 'am', 
-  carrierOsc: number, 
-  depth: number
+  params: SonificationParams
 ): string {
+  const {
+    durationSec, mode, carrierOsc, fmDepth,
+    attack, decay, sustain, release,
+    lfoRate, lfoDepth, lfoTarget,
+    filterType, filterFreq, filterQ
+  } = params;
+  
   const sampleRate = 44100;
   const totalSamples = Math.floor(sampleRate * durationSec);
   const buffer = new Float32Array(totalSamples);
   
   let phase = 0;
+  let lfoPhase = 0;
+  
+  const biquad = new Biquad();
+  if (filterType !== 'none') {
+    biquad.setCookbook(filterType, filterFreq, filterQ, sampleRate);
+  }
   
   // Normalize data between 0 and 1
   let min = Infinity, max = -Infinity;
@@ -65,6 +146,13 @@ export function generateSonifiedAudioURL(
   }
   const range = max - min || 1;
   const normData = data.map(v => (v - min) / range);
+
+  // ADSR correction
+  let A = attack, D = decay, S = sustain, R = release;
+  if (A + D + R > durationSec) {
+      const scale = durationSec / (A + D + R);
+      A *= scale; D *= scale; R *= scale;
+  }
 
   for (let i = 0; i < totalSamples; i++) {
       const dataIndex = (i / totalSamples) * (normData.length - 1);
@@ -77,28 +165,79 @@ export function generateSonifiedAudioURL(
           signalVal = normData[idx1] * (1 - frac) + normData[idx2] * frac;
       }
 
+      const t = i / sampleRate;
+
+      // ADSR
+      let env = 1;
+      if (t < A) env = A > 0 ? t / A : 1;
+      else if (t < A + D) env = D > 0 ? 1 - (1 - S) * ((t - A) / D) : S;
+      else if (t < durationSec - R) env = S;
+      else env = R > 0 ? S * Math.max(0, 1 - (t - (durationSec - R)) / R) : 0;
+      
+      // LFO
+      let lfoVal = 0;
+      if (lfoTarget !== 'none' && lfoDepth > 0) {
+          lfoVal = Math.sin(lfoPhase) * lfoDepth;
+          lfoPhase += 2 * Math.PI * lfoRate / sampleRate;
+      }
+
+      if (lfoTarget === 'filter' && filterType !== 'none' && i % 32 === 0) {
+          let modFreq = filterFreq + lfoVal; 
+          if (modFreq < 20) modFreq = 20;
+          if (modFreq > sampleRate/2 - 10) modFreq = sampleRate/2 - 10;
+          biquad.setCookbook(filterType, modFreq, filterQ, sampleRate);
+      }
+      
+      let sample = 0;
+
       if (mode === 'direct') {
-          buffer[i] = (signalVal * 2) - 1; // -1 to 1
+          const currentAmp = lfoTarget === 'amp' ? Math.max(0, 1 + lfoVal) : 1;
+          sample = ((signalVal * 2) - 1) * currentAmp;
       } else if (mode === 'am') {
-          const osc = Math.sin(phase);
-          buffer[i] = osc * signalVal;
-          phase += 2 * Math.PI * carrierOsc / sampleRate;
+          const currentAmp = lfoTarget === 'amp' ? Math.max(0, signalVal + lfoVal) : signalVal;
+          const currentOscFreq = lfoTarget === 'pitch' ? carrierOsc + lfoVal : carrierOsc;
+          
+          sample = Math.sin(phase) * currentAmp;
+          phase += 2 * Math.PI * currentOscFreq / sampleRate;
       } else if (mode === 'fm') {
-          const osc = Math.sin(phase);
-          buffer[i] = osc;
-          const currentFreq = carrierOsc + (signalVal - 0.5) * 2 * depth; 
+          const currentAmp = lfoTarget === 'amp' ? Math.max(0, 1 + lfoVal) : 1;
+          const currentCarrier = lfoTarget === 'pitch' ? carrierOsc + lfoVal : carrierOsc;
+          
+          sample = Math.sin(phase) * currentAmp;
+          const currentFreq = currentCarrier + (signalVal - 0.5) * 2 * fmDepth; 
           phase += 2 * Math.PI * currentFreq / sampleRate;
       }
+
+      sample *= env;
+
+      if (filterType !== 'none') {
+         sample = biquad.process(sample);
+      }
+
+      buffer[i] = sample;
   }
   
   return URL.createObjectURL(new Blob([encodeWAV(buffer, sampleRate)], { type: 'audio/wav' }));
 }
 
 export function SonificationStudio({ isOpen, onClose, signalData, signalName }: SonificationStudioProps) {
-  const [mode, setMode] = useState<'fm' | 'am' | 'direct'>('fm');
-  const [duration, setDuration] = useState<number>(30); // seconds
-  const [carrier, setCarrier] = useState<number>(440); // Hz
-  const [fmDepth, setFmDepth] = useState<number>(200); // Hz
+  const [synthTab, setSynthTab] = useState<'osc'|'env'|'fx'>('osc');
+  const [params, setParams] = useState<SonificationParams>({
+    mode: 'fm',
+    durationSec: 30,
+    carrierOsc: 440,
+    fmDepth: 200,
+    attack: 0.1,
+    decay: 0.1,
+    sustain: 0.8,
+    release: 0.5,
+    lfoRate: 5,
+    lfoDepth: 0,
+    lfoTarget: 'none',
+    filterType: 'none',
+    filterFreq: 2000,
+    filterQ: 1
+  });
   
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -121,7 +260,7 @@ export function SonificationStudio({ isOpen, onClose, signalData, signalName }: 
     setIsGenerating(true);
     // Slight timeout allows UI to show saving/loading state before blocking generation
     setTimeout(() => {
-      const url = generateSonifiedAudioURL(signalData, duration, mode, carrier, fmDepth);
+      const url = generateSonifiedAudioURL(signalData, params);
       if (audioUrl) URL.revokeObjectURL(audioUrl);
       setAudioUrl(url);
       setCurrentTime(0);
@@ -159,6 +298,10 @@ export function SonificationStudio({ isOpen, onClose, signalData, signalName }: 
     if (audioRef.current) {
       audioRef.current.playbackRate = rate;
     }
+  };
+
+  const updateParam = <K extends keyof SonificationParams>(key: K, value: SonificationParams[K]) => {
+    setParams(prev => ({ ...prev, [key]: value }));
   };
 
   useEffect(() => {
@@ -206,7 +349,7 @@ export function SonificationStudio({ isOpen, onClose, signalData, signalName }: 
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6 custom-scrollbar">
               {/* Visualizer Stub */}
               <div className="bg-black border border-slate-800 rounded-xl p-4 h-32 relative">
                 <div className="absolute top-2 left-2 flex items-center gap-2 text-[10px] font-mono text-indigo-500 font-bold uppercase tracking-widest">
@@ -217,80 +360,241 @@ export function SonificationStudio({ isOpen, onClose, signalData, signalName }: 
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Sonification Engine Settings */}
-                <div className="space-y-5 bg-slate-950/50 border border-slate-800 rounded-xl p-5">
-                  <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-                    <Settings2 className="w-4 h-4 text-emerald-500" />
-                    <h4 className="text-xs uppercase tracking-widest text-slate-300 font-bold">Synthesis Engine</h4>
+                <div className="space-y-4 bg-slate-950/50 border border-slate-800 rounded-xl p-5">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="w-4 h-4 text-emerald-500" />
+                      <h4 className="text-xs uppercase tracking-widest text-slate-300 font-bold">Synthesis Engine</h4>
+                    </div>
                   </div>
                   
-                  <div className="space-y-4">
-                    <div>
-                      <label className="text-[10px] uppercase text-slate-500 mb-2 block font-bold tracking-wider">Modulation Mode</label>
-                      <div className="flex bg-slate-900 border border-slate-800 rounded p-1">
-                        <button 
-                          onClick={() => setMode('fm')}
-                          className={cn("flex-1 text-xs py-1.5 rounded transition", mode === 'fm' ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200")}
-                        >
-                          Freq Mod (FM)
-                        </button>
-                        <button 
-                          onClick={() => setMode('am')}
-                          className={cn("flex-1 text-xs py-1.5 rounded transition", mode === 'am' ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200")}
-                        >
-                          Amp Mod (AM)
-                        </button>
-                        <button 
-                          onClick={() => setMode('direct')}
-                          className={cn("flex-1 text-xs py-1.5 rounded transition", mode === 'direct' ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200")}
-                        >
-                          Raw Direct
-                        </button>
-                      </div>
-                    </div>
+                  <div className="flex bg-slate-900 border border-slate-800 rounded p-1">
+                    <button 
+                      onClick={() => setSynthTab('osc')}
+                      className={cn("flex-1 text-xs py-1.5 rounded transition font-medium", synthTab === 'osc' ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200")}
+                    >
+                      Oscillator
+                    </button>
+                    <button 
+                      onClick={() => setSynthTab('env')}
+                      className={cn("flex-1 text-xs py-1.5 rounded transition font-medium", synthTab === 'env' ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200")}
+                    >
+                      Envelope
+                    </button>
+                    <button 
+                      onClick={() => setSynthTab('fx')}
+                      className={cn("flex-1 text-xs py-1.5 rounded transition font-medium", synthTab === 'fx' ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200")}
+                    >
+                      LFO & Filter
+                    </button>
+                  </div>
+                  
+                  <div className="space-y-4 min-h-[160px]">
+                    {synthTab === 'osc' && (
+                      <div className="animate-in fade-in duration-300 space-y-4">
+                        <div>
+                          <label className="text-[10px] uppercase text-slate-500 mb-2 block font-bold tracking-wider">Modulation Mode</label>
+                          <div className="flex bg-slate-900 border border-slate-800 rounded p-1">
+                            <button 
+                              onClick={() => updateParam('mode', 'fm')}
+                              className={cn("flex-1 text-[10px] py-1.5 rounded transition", params.mode === 'fm' ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30" : "text-slate-400 hover:text-slate-200")}
+                            >
+                              Frequency (FM)
+                            </button>
+                            <button 
+                              onClick={() => updateParam('mode', 'am')}
+                              className={cn("flex-1 text-[10px] py-1.5 rounded transition", params.mode === 'am' ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30" : "text-slate-400 hover:text-slate-200")}
+                            >
+                              Amplitude (AM)
+                            </button>
+                            <button 
+                              onClick={() => updateParam('mode', 'direct')}
+                              className={cn("flex-1 text-[10px] py-1.5 rounded transition", params.mode === 'direct' ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30" : "text-slate-400 hover:text-slate-200")}
+                            >
+                              Raw Direct
+                            </button>
+                          </div>
+                        </div>
 
-                    <div>
-                      <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                        <span>Interpolated Duration</span>
-                        <span>{duration}s</span>
-                      </div>
-                      <input 
-                        type="range" min="1" max="180" step="1"
-                        value={duration}
-                        onChange={(e) => setDuration(parseInt(e.target.value))}
-                        className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded appearance-none"
-                      />
-                    </div>
-
-                    {mode !== 'direct' && (
-                      <>
                         <div>
                           <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                            <span>Carrier Freq</span>
-                            <span>{carrier} Hz</span>
+                            <span>Interpolated Duration</span>
+                            <span>{params.durationSec}s</span>
                           </div>
                           <input 
-                            type="range" min="20" max="2000" step="10"
-                            value={carrier}
-                            onChange={(e) => setCarrier(parseInt(e.target.value))}
-                            className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded appearance-none"
+                            type="range" min="1" max="180" step="1"
+                            value={params.durationSec}
+                            onChange={(e) => updateParam('durationSec', parseInt(e.target.value))}
+                            className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded appearance-none"
+                          />
+                        </div>
+
+                        {params.mode !== 'direct' && (
+                          <>
+                            <div>
+                              <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                                <span>Carrier Freq</span>
+                                <span>{params.carrierOsc} Hz</span>
+                              </div>
+                              <input 
+                                type="range" min="20" max="2000" step="10"
+                                value={params.carrierOsc}
+                                onChange={(e) => updateParam('carrierOsc', parseInt(e.target.value))}
+                                className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded appearance-none"
+                              />
+                            </div>
+                            
+                            {params.mode === 'fm' && (
+                              <div>
+                                <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                                  <span>FM Depth Spread</span>
+                                  <span>{params.fmDepth} Hz</span>
+                                </div>
+                                <input 
+                                  type="range" min="10" max="1000" step="10"
+                                  value={params.fmDepth}
+                                  onChange={(e) => updateParam('fmDepth', parseInt(e.target.value))}
+                                  className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded appearance-none"
+                                />
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {synthTab === 'env' && (
+                      <div className="animate-in fade-in duration-300 space-y-4">
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            <span>Attack Time</span>
+                            <span>{params.attack.toFixed(2)}s</span>
+                          </div>
+                          <input 
+                            type="range" min="0" max="5" step="0.05"
+                            value={params.attack}
+                            onChange={(e) => updateParam('attack', parseFloat(e.target.value))}
+                            className="w-full accent-pink-500 h-1.5 bg-slate-800 rounded appearance-none"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            <span>Decay Time</span>
+                            <span>{params.decay.toFixed(2)}s</span>
+                          </div>
+                          <input 
+                            type="range" min="0" max="5" step="0.05"
+                            value={params.decay}
+                            onChange={(e) => updateParam('decay', parseFloat(e.target.value))}
+                            className="w-full accent-pink-500 h-1.5 bg-slate-800 rounded appearance-none"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            <span>Sustain Level</span>
+                            <span>{(params.sustain * 100).toFixed(0)}%</span>
+                          </div>
+                          <input 
+                            type="range" min="0" max="1" step="0.01"
+                            value={params.sustain}
+                            onChange={(e) => updateParam('sustain', parseFloat(e.target.value))}
+                            className="w-full accent-pink-500 h-1.5 bg-slate-800 rounded appearance-none"
+                          />
+                        </div>
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            <span>Release Time</span>
+                            <span>{params.release.toFixed(2)}s</span>
+                          </div>
+                          <input 
+                            type="range" min="0.1" max="10" step="0.1"
+                            value={params.release}
+                            onChange={(e) => updateParam('release', parseFloat(e.target.value))}
+                            className="w-full accent-pink-500 h-1.5 bg-slate-800 rounded appearance-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {synthTab === 'fx' && (
+                      <div className="animate-in fade-in duration-300 space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                              <span>LFO Target</span>
+                            </div>
+                            <select 
+                              value={params.lfoTarget}
+                              onChange={(e) => updateParam('lfoTarget', e.target.value as any)}
+                              className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-slate-200 outline-none focus:border-indigo-500"
+                            >
+                              <option value="none">None</option>
+                              {params.mode !== 'direct' && <option value="pitch">Pitch</option>}
+                              <option value="amp">Amplitude</option>
+                              <option value="filter">Filter Freq</option>
+                            </select>
+                          </div>
+                          <div>
+                            <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                              <span>LFO Rate</span>
+                              <span>{params.lfoRate.toFixed(1)} Hz</span>
+                            </div>
+                            <input 
+                              type="range" min="0.1" max="20" step="0.1"
+                              value={params.lfoRate}
+                              onChange={(e) => updateParam('lfoRate', parseFloat(e.target.value))}
+                              disabled={params.lfoTarget === 'none'}
+                              className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded appearance-none disabled:opacity-50 mt-2"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                            <span>LFO Depth</span>
+                            <span>{params.lfoDepth.toFixed(1)}</span>
+                          </div>
+                          <input 
+                            type="range" min="0" max={params.lfoTarget === 'filter' ? 2000 : params.lfoTarget === 'pitch' ? 100 : 1} step={0.01}
+                            value={params.lfoDepth}
+                            onChange={(e) => updateParam('lfoDepth', parseFloat(e.target.value))}
+                            disabled={params.lfoTarget === 'none'}
+                            className="w-full accent-cyan-500 h-1.5 bg-slate-800 rounded appearance-none disabled:opacity-50"
                           />
                         </div>
                         
-                        {mode === 'fm' && (
-                          <div>
-                            <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
-                              <span>FM Depth Spread</span>
-                              <span>{fmDepth} Hz</span>
+                        <div className="pt-2 border-t border-slate-800/50">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                                <span>Filter Type</span>
+                              </div>
+                              <select 
+                                value={params.filterType}
+                                onChange={(e) => updateParam('filterType', e.target.value as any)}
+                                className="w-full bg-slate-900 border border-slate-800 rounded p-1.5 text-xs text-slate-200 outline-none focus:border-indigo-500"
+                              >
+                                <option value="none">Bypass</option>
+                                <option value="lowpass">Low-pass</option>
+                                <option value="highpass">High-pass</option>
+                              </select>
                             </div>
-                            <input 
-                              type="range" min="10" max="1000" step="10"
-                              value={fmDepth}
-                              onChange={(e) => setFmDepth(parseInt(e.target.value))}
-                              className="w-full accent-emerald-500 h-1.5 bg-slate-800 rounded appearance-none"
-                            />
+                            <div>
+                              <div className="flex justify-between text-[10px] text-slate-400 mb-1 uppercase tracking-wider">
+                                <span>Cutoff</span>
+                                <span>{params.filterFreq} Hz</span>
+                              </div>
+                              <input 
+                                type="range" min="20" max="5000" step="10"
+                                value={params.filterFreq}
+                                onChange={(e) => updateParam('filterFreq', parseInt(e.target.value))}
+                                disabled={params.filterType === 'none'}
+                                className="w-full accent-fuchsia-500 h-1.5 bg-slate-800 rounded appearance-none disabled:opacity-50 mt-2"
+                              />
+                            </div>
                           </div>
-                        )}
-                      </>
+                        </div>
+                      </div>
                     )}
                     
                     <button 
@@ -335,10 +639,10 @@ export function SonificationStudio({ isOpen, onClose, signalData, signalName }: 
                       <div className="w-full space-y-1">
                         <div className="flex justify-between text-[10px] font-mono text-slate-400">
                           <span>{(currentTime).toFixed(1)}s</span>
-                          <span>{duration.toFixed(1)}s</span>
+                          <span>{params.durationSec.toFixed(1)}s</span>
                         </div>
                         <input 
-                          type="range" min="0" max={duration} step="0.1"
+                          type="range" min="0" max={params.durationSec} step="0.1"
                           value={currentTime}
                           onChange={handleScrub}
                           disabled={!audioUrl}
@@ -372,8 +676,8 @@ export function SonificationStudio({ isOpen, onClose, signalData, signalName }: 
               {audioUrl ? (
                 <a 
                   href={audioUrl} 
-                  download={`sonified-${signalName}.wav`}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-2 border border-slate-700"
+                  download={`sonified-${signalName.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.wav`}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-bold transition flex items-center gap-2 border border-slate-700 shadow-md hover:shadow-lg active:scale-95"
                 >
                   <Download className="w-4 h-4" /> Export .WAV
                 </a>

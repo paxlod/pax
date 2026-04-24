@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { generateSpectrogram } from '../lib/signal-processing';
-import { Settings2, RefreshCw } from 'lucide-react';
+import { Settings2, RefreshCw, Palette } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { Canvas } from '@react-three/fiber';
@@ -13,7 +13,68 @@ interface SpectrogramViewProps {
   windowSize?: number;
 }
 
-const SpectrogramMaterial = {
+const COLOR_MAPS = {
+  seti: `
+      // Dynamic SETI Color Mapping: Deep space blue -> Anomaly Green/Pink
+      vec3 color = vec3(
+        clamp(3.2 * normalized - 1.5, 0.0, 1.0), // Red channel (peaks)
+        clamp(-2.5 * abs(normalized - 0.5) + 1.2, 0.0, 1.0), // Green channel (mids)
+        clamp(2.5 * (0.5 - normalized), 0.0, 1.0) // Blue channel (base noise)
+      );
+  `,
+  magma: `
+      // Magma-ish
+      vec3 color = vec3(
+        clamp(3.0 * normalized - 0.2, 0.0, 1.0),
+        clamp(3.0 * normalized - 1.0, 0.0, 1.0),
+        clamp(1.5 * normalized - 0.2, 0.0, 1.0) + clamp(0.5*(1.0-normalized), 0.0, 1.0)
+      );
+  `,
+  viridis: `
+      // Viridis-ish
+      vec3 color = vec3(
+        clamp(2.5 * normalized - 1.0, 0.0, 1.0) + clamp(0.3 * (1.0 - normalized), 0.0, 1.0),
+        clamp(2.0 * normalized, 0.0, 1.0),
+        clamp(2.5 * (0.5 - normalized), 0.0, 1.0)
+      );
+  `,
+  grayscale: `
+      vec3 color = vec3(normalized);
+  `,
+  thermal: `
+      // Thermal
+      vec3 color = vec3(
+        clamp(3.0 * normalized, 0.0, 1.0),
+        clamp(3.0 * normalized - 1.0, 0.0, 1.0),
+        clamp(3.0 * normalized - 2.0, 0.0, 1.0)
+      );
+  `
+};
+
+type ColorMapKey = keyof typeof COLOR_MAPS;
+
+const getFragmentShader = (mapType: ColorMapKey) => `
+    uniform sampler2D uDataTexture;
+    uniform float uMaxMag;
+    varying vec2 vUv;
+    void main() {
+      // Discard pixels outside bounds
+      if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) {
+         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+         return;
+      }
+      
+      // Sample the texture
+      float mag = texture2D(uDataTexture, vUv).r;
+      float normalized = clamp(mag / uMaxMag, 0.0, 1.0);
+      
+${COLOR_MAPS[mapType]}
+      
+      gl_FragColor = vec4(color, 1.0);
+    }
+`;
+
+const getSpectrogramMaterial = (mapType: ColorMapKey) => ({
   uniforms: {
     uDataTexture: { value: null },
     uMaxMag: { value: 1.0 },
@@ -30,37 +91,16 @@ const SpectrogramMaterial = {
       gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
   `,
-  fragmentShader: `
-    uniform sampler2D uDataTexture;
-    uniform float uMaxMag;
-    varying vec2 vUv;
-    void main() {
-      // Discard pixels outside bounds
-      if (vUv.x < 0.0 || vUv.x > 1.0 || vUv.y < 0.0 || vUv.y > 1.0) {
-         gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-         return;
-      }
-      
-      // Sample the texture
-      float mag = texture2D(uDataTexture, vUv).r;
-      float normalized = clamp(mag / uMaxMag, 0.0, 1.0);
-      
-      // Dynamic SETI Color Mapping: Deep space blue -> Anomaly Green/Pink
-      vec3 color = vec3(
-        clamp(3.2 * normalized - 1.5, 0.0, 1.0), // Red channel (peaks)
-        clamp(-2.5 * abs(normalized - 0.5) + 1.2, 0.0, 1.0), // Green channel (mids)
-        clamp(2.5 * (0.5 - normalized), 0.0, 1.0) // Blue channel (base noise)
-      );
-      gl_FragColor = vec4(color, 1.0);
-    }
-  `
-};
+  fragmentShader: getFragmentShader(mapType)
+});
 
 export function SpectrogramView({ data, width = '100%', height = 200, windowSize: initialWindowSize = 256 }: SpectrogramViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [windowSize, setWindowSize] = useState(initialWindowSize);
   const [overlap, setOverlap] = useState(Math.floor(initialWindowSize / 2));
+  const [activeColorMap, setActiveColorMap] = useState<ColorMapKey>('seti');
+  const materialParams = useMemo(() => getSpectrogramMaterial(activeColorMap), [activeColorMap]);
   
   // Transform states (using React states so it triggers re-renders for the uniforms)
   const [zoom, setZoom] = useState(1.0);
@@ -238,7 +278,7 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
                    <planeGeometry args={[2, 2]} />
                    <shaderMaterial 
                      attach="material" 
-                     args={[SpectrogramMaterial]} 
+                     args={[materialParams]} 
                      uniforms={uniforms} 
                    />
                  </mesh>
@@ -253,6 +293,22 @@ export function SpectrogramView({ data, width = '100%', height = 200, windowSize
                </div>
              )}
            </div>
+        </div>
+        
+        {/* Color Map Switcher */}
+        <div className="flex gap-2 mt-4 bg-slate-900 border border-slate-800 rounded-lg p-1 shrink-0">
+          {(Object.keys(COLOR_MAPS) as ColorMapKey[]).map(key => (
+            <button
+              key={key}
+              onClick={() => setActiveColorMap(key)}
+              className={cn(
+                "flex-1 py-1 text-[10px] font-bold uppercase tracking-wider rounded transition-colors",
+                activeColorMap === key ? "bg-emerald-600 text-white shadow" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+              )}
+            >
+              {key}
+            </button>
+          ))}
         </div>
       </div>
       

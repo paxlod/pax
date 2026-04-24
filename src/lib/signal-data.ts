@@ -119,6 +119,142 @@ export function generatePulsarSignal(): Signal {
   };
 }
 
+export function generateVelaPulsarSignal(): Signal {
+  const data: number[] = [];
+  const length = 10000;
+  const period = 89; // ~89.3ms pulsar (Vela)
+  
+  for (let i = 0; i < length; i++) {
+    let val = Math.random() * 0.2; // Noise
+    if (i % period < 8) {
+      val += 0.9 * Math.exp(-Math.pow((i % period) - 4, 2) / 8); // Pulse
+    }
+    // Minor secondary pulse
+    if ((i + 30) % period < 5) {
+      val += 0.3 * Math.exp(-Math.pow(((i + 30) % period) - 2, 2) / 10);
+    }
+    data.push(val);
+  }
+  
+  return {
+    metadata: {
+      id: 'psr-vela',
+      name: 'Vela Pulsar (PSR J0835-4510)',
+      category: 'Pulsar',
+      description: 'A radio, optical, X-ray, and gamma-emitting pulsar associated with the Vela Supernova Remnant.',
+      telescope: 'Parkes Observatory',
+      frequency: '1.4 GHz',
+      date: '1968',
+      coordinates: 'RA 08h 35m 20.61s | Dec -45° 10′ 34.8″'
+    },
+    data
+  };
+}
+
+export function generateVelaPulsarSignal(): Signal {
+  const data: number[] = [];
+  const length = 10000;
+  const period = 89; // ~89.3ms pulsar (Vela)
+  
+  for (let i = 0; i < length; i++) {
+    let val = Math.random() * 0.2; // Noise
+    if (i % period < 8) {
+      val += 0.9 * Math.exp(-Math.pow((i % period) - 4, 2) / 8); // Pulse
+    }
+    // Minor secondary pulse
+    if ((i + 30) % period < 5) {
+      val += 0.3 * Math.exp(-Math.pow(((i + 30) % period) - 2, 2) / 10);
+    }
+    data.push(val);
+  }
+  
+  return {
+    metadata: {
+      id: 'psr-vela',
+      name: 'Vela Pulsar (PSR J0835-4510)',
+      category: 'Pulsar',
+      description: 'A radio, optical, X-ray, and gamma-emitting pulsar associated with the Vela Supernova Remnant.',
+      telescope: 'Parkes Observatory',
+      frequency: '1.4 GHz',
+      date: '1968',
+      coordinates: 'RA 08h 35m 20.61s | Dec -45° 10′ 34.8″'
+    },
+    data
+  };
+}
+
+export function generateAstroLinguisticsSignal(): Signal {
+  const telemetry = `11FS1I 1E 1H 211F32 1GX 3HG12HHH1GH1G 11G1IHGH3 
+11PI1H12G 1IZH G1 H HHGG EQS211 1 11 1QQF1F12FF 
+G 2RH1SGS112GQ F11 1H11RPR 1132 1 F111 I21H 1 1 
+F1 2 1FF2PHG F2G1 1 Q Q1FGF2G2IGG I2HI121SG1HH R`;
+
+  const mapping: Record<string, number> = {};
+  for (let i = 0; i < 10; i++) mapping[i.toString()] = i;
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (let i = 0; i < alphabet.length; i++) mapping[alphabet[i]] = i + 10;
+
+  const data: number[] = [];
+  // Calculate raw values matching python script
+  for (const char of telemetry) {
+    if (mapping[char] !== undefined) {
+      data.push(mapping[char] / 35.0); // Normalize to 0-1
+    } else if (char === " ") {
+      data.push(0);
+    }
+  }
+
+  return {
+    metadata: {
+      id: 'astro-ling-11726',
+      name: 'Astro-Linguistics Event #11726',
+      category: 'Astro-Linguistics',
+      description: 'Alphanumeric telemetry string ("11FS1I...") decoded on a 0-35 intensity scale. Reshaping suggests a 4-line raster image with roughly 45 columns.',
+      telescope: 'Unknown Transient Detector',
+      frequency: 'VLF',
+      date: '2026-04-23',
+      coordinates: 'N/A'
+    },
+    data
+  };
+}
+
+export function generateAstroLinguisticsSignal(): Signal {
+  const telemetry = `11FS1I 1E 1H 211F32 1GX 3HG12HHH1GH1G 11G1IHGH3 
+11PI1H12G 1IZH G1 H HHGG EQS211 1 11 1QQF1F12FF 
+G 2RH1SGS112GQ F11 1H11RPR 1132 1 F111 I21H 1 1 
+F1 2 1FF2PHG F2G1 1 Q Q1FGF2G2IGG I2HI121SG1HH R`;
+
+  const mapping: Record<string, number> = {};
+  for (let i = 0; i < 10; i++) mapping[i.toString()] = i;
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  for (let i = 0; i < alphabet.length; i++) mapping[alphabet[i]] = i + 10;
+
+  const data: number[] = [];
+  // Calculate raw values matching python script
+  for (const char of telemetry) {
+    if (mapping[char] !== undefined) {
+      data.push(mapping[char] / 35.0); // Normalize to 0-1
+    } else if (char === " ") {
+      data.push(0);
+    }
+  }
+
+  return {
+    metadata: {
+      id: 'astro-ling-11726',
+      name: 'Astro-Linguistics Event #11726',
+      category: 'Astro-Linguistics',
+      description: 'Alphanumeric telemetry string ("11FS1I...") decoded on a 0-35 intensity scale. Reshaping suggests a 4-line raster image with roughly 45 columns.',
+      telescope: 'Unknown Transient Detector',
+      frequency: 'VLF',
+      date: '2026-04-23',
+      coordinates: 'N/A'
+    },
+    data
+  };
+}
+
 export function generateWowSignal(): Signal {
   const data: number[] = [];
   const length = 5000;
@@ -169,6 +305,154 @@ export function generateTestChirp(): Signal {
       description: 'A test signal where the frequency increases linearly with time.',
       telescope: 'Simulated',
       frequency: 'Variable',
+      date: new Date().toISOString().split('T')[0],
+      coordinates: 'N/A'
+    },
+    data
+  };
+}
+
+export function generateLGM1PulsarSignal(): Signal {
+  const data: number[] = [];
+  const length = 10000;
+  const period = 1337; // ~1.337s pulsar (LGM-1)
+  
+  for (let i = 0; i < length; i++) {
+    let val = Math.random() * 0.15; // Noise
+    if (i % period < 15) {
+      val += 0.85 * Math.exp(-Math.pow((i % period) - 7, 2) / 15); // Pulse
+    }
+    data.push(val);
+  }
+  
+  return {
+    metadata: {
+      id: 'psr-lgm1',
+      name: 'LGM-1 (PSR B1919+21)',
+      category: 'Pulsar',
+      description: 'The first radio pulsar ever discovered. Initially nicknamed "Little Green Men 1" due to its highly regular 1.337 second period.',
+      telescope: 'Mullard Radio Astronomy Observatory',
+      frequency: '81.5 MHz',
+      date: '1967-11-28',
+      coordinates: 'RA 19h 21m 44.81s | Dec +21° 53′ 02.3″'
+    },
+    data
+  };
+}
+
+export function generateSHGb0214aSignal(): Signal {
+  const data: number[] = [];
+  const length = 8000;
+  
+  for (let i = 0; i < length; i++) {
+    const drift = i * 0.00002;
+    const isIntermittent = (i % 2000) < 1000; // Signal appears and disappears
+    const val = isIntermittent ? 
+      0.6 * Math.sin(2 * Math.PI * (0.05 + drift) * i) + Math.random() * 0.4 : 
+      Math.random() * 0.3;
+    data.push(val);
+  }
+  
+  return {
+    metadata: {
+      id: 'seti-shgb0214a',
+      name: 'SHGb02+14a',
+      category: 'SETI',
+      description: 'A well-known radio source candidate observed multiple times by the SETI@home project with a rapidly drifting frequency.',
+      telescope: 'Arecibo Observatory',
+      frequency: '1420 MHz',
+      date: '2003-03-01',
+      coordinates: 'RA 02h 14m 12s | Dec +14° 03′ 00″'
+    },
+    data
+  };
+}
+
+export function generateWhiteNoiseSignal(): Signal {
+  const data: number[] = Array.from({ length: 5000 }, () => Math.random());
+  
+  return {
+    metadata: {
+      id: 'test-white-noise',
+      name: 'Gaussian White Noise Base',
+      category: 'Test',
+      description: 'A pure white noise signal containing equal intensity at all frequencies, often used to calibrate interference thresholds.',
+      telescope: 'Simulated',
+      frequency: 'All Bands',
+      date: new Date().toISOString().split('T')[0],
+      coordinates: 'N/A'
+    },
+    data
+  };
+}
+
+export function generateLGM1PulsarSignal(): Signal {
+  const data: number[] = [];
+  const length = 10000;
+  const period = 1337; // ~1.337s pulsar (LGM-1)
+  
+  for (let i = 0; i < length; i++) {
+    let val = Math.random() * 0.15; // Noise
+    if (i % period < 15) {
+      val += 0.85 * Math.exp(-Math.pow((i % period) - 7, 2) / 15); // Pulse
+    }
+    data.push(val);
+  }
+  
+  return {
+    metadata: {
+      id: 'psr-lgm1',
+      name: 'LGM-1 (PSR B1919+21)',
+      category: 'Pulsar',
+      description: 'The first radio pulsar ever discovered. Initially nicknamed "Little Green Men 1" due to its highly regular 1.337 second period.',
+      telescope: 'Mullard Radio Astronomy Observatory',
+      frequency: '81.5 MHz',
+      date: '1967-11-28',
+      coordinates: 'RA 19h 21m 44.81s | Dec +21° 53′ 02.3″'
+    },
+    data
+  };
+}
+
+export function generateSHGb0214aSignal(): Signal {
+  const data: number[] = [];
+  const length = 8000;
+  
+  for (let i = 0; i < length; i++) {
+    const drift = i * 0.00002;
+    const isIntermittent = (i % 2000) < 1000; // Signal appears and disappears
+    const val = isIntermittent ? 
+      0.6 * Math.sin(2 * Math.PI * (0.05 + drift) * i) + Math.random() * 0.4 : 
+      Math.random() * 0.3;
+    data.push(val);
+  }
+  
+  return {
+    metadata: {
+      id: 'seti-shgb0214a',
+      name: 'SHGb02+14a',
+      category: 'SETI',
+      description: 'A well-known radio source candidate observed multiple times by the SETI@home project with a rapidly drifting frequency.',
+      telescope: 'Arecibo Observatory',
+      frequency: '1420 MHz',
+      date: '2003-03-01',
+      coordinates: 'RA 02h 14m 12s | Dec +14° 03′ 00″'
+    },
+    data
+  };
+}
+
+export function generateWhiteNoiseSignal(): Signal {
+  const data: number[] = Array.from({ length: 5000 }, () => Math.random());
+  
+  return {
+    metadata: {
+      id: 'test-white-noise',
+      name: 'Gaussian White Noise Base',
+      category: 'Test',
+      description: 'A pure white noise signal containing equal intensity at all frequencies, often used to calibrate interference thresholds.',
+      telescope: 'Simulated',
+      frequency: 'All Bands',
       date: new Date().toISOString().split('T')[0],
       coordinates: 'N/A'
     },
@@ -598,11 +882,15 @@ let cachedLibrary: Signal[] | null = null;
 export function getSignalLibrary(): Signal[] {
   if (!cachedLibrary) {
     const staticSignals = [
+      generateAstroLinguisticsSignal(),
       generateGoldenRecordSignal(),
       generateAreciboMessage(),
+      generateLGM1PulsarSignal(),
       generatePulsarSignal(),
+      generateVelaPulsarSignal(),
       generateWowSignal(),
       generateBLC1(),
+      generateSHGb0214aSignal(),
       generateSETICandidate(),
       generateFRBSignal(),
       generateJupiterRadio(),
@@ -610,6 +898,7 @@ export function getSignalLibrary(): Signal[] {
       generateUnknownAnomalousSignal(),
       generateUnknownRecursiveSignal(),
       generateTestChirp(),
+      generateWhiteNoiseSignal(),
       generateHydrogenSignal('Station Omega-7'),
       generateHydrogenSignal('Station Alpha-9'),
       generateHydrogenSignal('Deep Field HI')
