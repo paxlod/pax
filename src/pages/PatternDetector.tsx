@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getSignalById } from '../lib/signal-data';
 import { detectPatterns, getAutocorrelationPeaks } from '../lib/signal-processing';
@@ -6,7 +6,7 @@ import { WaveformView } from '../components/WaveformView';
 import { SpectrumView } from '../components/SpectrumView';
 import { AutocorrelationView } from '../components/AutocorrelationView';
 import { useAppStore } from '../lib/store';
-import { ArrowLeft, Save, AlertTriangle, CheckCircle2, HelpCircle, Sparkles, Info, ExternalLink, Activity, Radio } from 'lucide-react';
+import { ArrowLeft, Save, AlertTriangle, CheckCircle2, HelpCircle, Sparkles, Info, ExternalLink, Activity, Radio, Zap } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { analyzeSignalWithAI } from '../services/aiService';
 
@@ -28,13 +28,12 @@ export function PatternDetector() {
       setTimeout(() => {
         setResult(detectPatterns(signal.data));
         setIsAnalyzing(false);
-      }, 500); // Artificial delay for effect
+      }, 500);
     }
   }, [signal?.metadata.id]);
 
   const rawPeaks = useMemo(() => {
     if (!signal) return [];
-    // Identify peaks that exceed 0.8 and are separated by 20 samples
     const findPeaks = (data: number[], threshold: number, minDistance: number): number[] => {
       const peaks: number[] = [];
       for (let i = 1; i < data.length - 1; i++) {
@@ -210,7 +209,7 @@ export function PatternDetector() {
                   <button 
                     onClick={handleAiAnalysis}
                     disabled={isAiAnalyzing}
-                    className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-purple-600 to-emerald-600 hover:from-purple-500 hover:to-emerald-500 disabled:opacity-50 text-white rounded-xl font-bold shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
+                    className="w-full flex items-center justify-center gap-2 py-4 bg-gradient-to-r from-purple-600 to-emerald-600 hover:from-purple-500 hover:to-emerald-500 disabled:opacity-50 text-white rounded-lg font-bold transition-colors"
                   >
                     <Sparkles className={cn("w-5 h-5", isAiAnalyzing && "animate-spin")} />
                     {isAiAnalyzing ? "AI Researcher Analyzing..." : "Deep AI Signal Analysis"}
@@ -243,8 +242,8 @@ export function PatternDetector() {
 
                       {aiResult.recommendation.toLowerCase().includes('decode') && (
                         <button 
-                          onClick={() => navigate(`/image-decoder/${signal.metadata.id}`)}
-                          className="w-full flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-lg text-xs font-bold transition-colors border border-emerald-500/20"
+                          onClick={() => navigate(`/decoder/${signal.metadata.id}`)}
+                          className="w-full flex items-center justify-center gap-2 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 rounded-lg text-xs font-bold transition-colors border border-slate-700"
                         >
                           Open Image Decoder <ExternalLink className="w-3 h-3" />
                         </button>
@@ -290,23 +289,6 @@ export function PatternDetector() {
                      {getAutocorrelationPeaks(signal.data, 500).length === 0 && (
                        <span className="text-xs text-slate-600 italic">No significant periodic peaks detected in local autocorrelation.</span>
                      )}
-                   </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'spectrum' && (
-              <div className="animate-in fade-in duration-300 space-y-4">
-                <SpectrumView data={signal.data} height={300} />
-                <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
-                   <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Dominant Harmonics</h4>
-                   <div className="space-y-2">
-                     {result.dominantFrequencies.map((f, i) => (
-                       <div key={i} className="flex justify-between items-center text-xs">
-                         <span className="text-slate-400">Peak #{i+1}</span>
-                         <span className="text-cyan-400 font-mono font-bold">{f} Hz</span>
-                       </div>
-                     ))}
                    </div>
                 </div>
               </div>
