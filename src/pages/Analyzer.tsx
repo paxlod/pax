@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getSignalById, getSignalLibrary } from '../lib/signal-data';
 import { WaveformView } from '../components/WaveformView';
@@ -7,7 +7,7 @@ import { SpectrumView } from '../components/SpectrumView';
 import { useAppStore } from '../lib/store';
 import { ArrowLeft, Activity, Zap, Info, ShieldAlert, Binary, Volume2, Square, Radio, Wifi, Image as ImageIcon, MessageSquare, Crosshair, Play, Pause, FastForward, SlidersHorizontal, Download, Network } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { analyzeSignal } from '../lib/signal-processing';
+import { analyzeSignal, detectPatterns } from '../lib/signal-processing';
 import { ScientificNeuralModal } from '../components/ScientificNeuralModal';
 import { SonificationStudio, generateSonifiedAudioURL } from '../components/SonificationStudio';
 import { Brain } from 'lucide-react';
@@ -19,7 +19,12 @@ export function Analyzer() {
   
   const [viewMode, setViewMode] = useState<'waveform' | 'spectrogram' | 'spectrum'>('waveform');
   const [stats, setStats] = useState<{ peakAmplitude: number, rms: number, snr: number, dominantFrequency: number } | null>(null);
+  const [patternData, setPatternData] = useState<{ type: string, confidence: number, period: number | null, dominantFrequencies: number[] } | null>(null);
   
+  // Chunking State
+  const [chunkSize, setChunkSize] = useState<number>(5000); // 5000 samples per chunk by default
+  const [chunkIndex, setChunkIndex] = useState(0);
+
   // Quick Sonification State
   const [quickSonifyStatus, setQuickSonifyStatus] = useState<'idle' | 'generating' | 'ready'>('idle');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -35,6 +40,20 @@ export function Analyzer() {
   const signal = id ? getSignalById(id) : undefined;
   const isHydrogen = signal?.metadata.category === 'Hydrogen Radio';
 
+  // Chunking logic
+  const totalSamples = signal?.data.length || 0;
+  const maxChunks = chunkSize === -1 ? 1 : Math.ceil(totalSamples / chunkSize);
+  // Ensure chunkIndex is within bounds if chunkSize changes
+  useEffect(() => {
+    if (chunkIndex >= maxChunks) {
+      setChunkIndex(Math.max(0, maxChunks - 1));
+    }
+  }, [chunkSize, maxChunks, chunkIndex]);
+
+  const activeData = useMemo(() => {
+    return signal ? (chunkSize === -1 ? signal.data : signal.data.slice(chunkIndex * chunkSize, (chunkIndex + 1) * chunkSize)) : [];
+  }, [signal, chunkSize, chunkIndex]);
+
   useEffect(() => {
     if (signal) {
       addRecentSignal(signal.metadata.id);
@@ -42,10 +61,11 @@ export function Analyzer() {
       incrementStat('signalsAnalyzed');
       // Run analysis asynchronously to not block UI
       setTimeout(() => {
-        setStats(analyzeSignal(signal.data));
+        setStats(analyzeSignal(activeData));
+        setPatternData(detectPatterns(activeData));
       }, 100);
     }
-  }, [signal?.metadata.id]);
+  }, [signal?.metadata.id, activeData]);
 
   // Handle Quick Sonification Generation
   const handleQuickSonifyUpdate = () => {
@@ -53,7 +73,22 @@ export function Analyzer() {
     setQuickSonifyStatus('generating');
     
     // Generate a 10s preview for quick analysis
-    const url = generateSonifiedAudioURL(signal.data, 10, synthesisMode, 440, 200);
+    const url = generateSonifiedAudioURL(activeData, {
+      mode: synthesisMode,
+      durationSec: 10,
+      carrierOsc: 440,
+      fmDepth: 200,
+      attack: 0.1,
+      decay: 0.1,
+      sustain: 0.8,
+      release: 0.5,
+      lfoRate: 5,
+      lfoDepth: 0,
+      lfoTarget: 'none',
+      filterType: 'none',
+      filterFreq: 2000,
+      filterQ: 1
+    });
     if (quickAudioUrl) URL.revokeObjectURL(quickAudioUrl);
     setQuickAudioUrl(url);
     setQuickSonifyStatus('ready');
@@ -138,6 +173,42 @@ export function Analyzer() {
             <h3 className="text-[10px] uppercase font-bold tracking-[0.2em] text-slate-500 flex items-center gap-2">
               <Activity className="w-3.5 h-3.5 text-indigo-400" /> Neural Signal Visualization
             </h3>
+            
+            {/* Chunking UI */}
+            <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg pr-1 pl-3 text-[10px] font-mono text-slate-400">
+              <span className="uppercase tracking-widest font-bold">Chunk:</span>
+              <div className="flex items-center">
+                <button 
+                  onClick={() => setChunkIndex(Math.max(0, chunkIndex - 1))}
+                  disabled={chunkIndex === 0}
+                  className="p-1 hover:text-indigo-400 disabled:opacity-50"
+                  title="Previous Chunk"
+                >◀</button>
+                <span className="min-w-8 text-center text-slate-200">{chunkSize === -1 ? 'ALL' : chunkIndex + 1}/{maxChunks}</span>
+                <button 
+                  onClick={() => setChunkIndex(Math.min(maxChunks - 1, chunkIndex + 1))}
+                  disabled={chunkIndex >= maxChunks - 1 || chunkSize === -1}
+                  className="p-1 hover:text-indigo-400 disabled:opacity-50"
+                  title="Next Chunk"
+                >▶</button>
+              </div>
+              <div className="h-4 w-px bg-slate-800 mx-1"></div>
+              <select
+                value={chunkSize}
+                onChange={(e) => {
+                  setChunkSize(Number(e.target.value));
+                  setChunkIndex(0);
+                }}
+                className="bg-transparent text-[10px] uppercase font-bold tracking-widest text-indigo-400 outline-none cursor-pointer"
+              >
+                <option value={1000}>1K SIZE</option>
+                <option value={5000}>5K SIZE</option>
+                <option value={10000}>10K SIZE</option>
+                <option value={50000}>50K SIZE</option>
+                <option value={-1}>FULL SIGNAL</option>
+              </select>
+            </div>
+
             <div className="flex bg-slate-950 rounded-lg p-0.5 border border-slate-800">
               <button 
                 onClick={() => setViewMode('waveform')}
@@ -171,9 +242,9 @@ export function Analyzer() {
           
           <div className="min-h-56 w-full bg-black rounded-xl overflow-hidden border border-slate-800 shadow-inner relative group">
             <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none" />
-            {viewMode === 'waveform' && <WaveformView data={signal.data} height={224} />}
-            {viewMode === 'spectrogram' && <SpectrogramView data={signal.data} height={224} />}
-            {viewMode === 'spectrum' && <SpectrumView data={signal.data} height={224} />}
+            {viewMode === 'waveform' && <WaveformView data={activeData} height={224} />}
+            {viewMode === 'spectrogram' && <SpectrogramView data={activeData} height={224} />}
+            {viewMode === 'spectrum' && <SpectrumView data={activeData} height={224} />}
           </div>
         </section>
 
@@ -363,15 +434,15 @@ export function Analyzer() {
         <ScientificNeuralModal 
           isOpen={isScientificModalOpen}
           onClose={() => setIsScientificModalOpen(false)}
-          signalData={signal.data}
-          signalName={signal.metadata.name}
+          signalData={activeData}
+          signalName={`${signal.metadata.name}${chunkSize !== -1 ? ` (Chunk ${chunkIndex + 1})` : ''}`}
         />
 
         <SonificationStudio 
           isOpen={isSonificationStudioOpen}
           onClose={() => setIsSonificationStudioOpen(false)}
-          signalData={signal.data}
-          signalName={signal.metadata.name}
+          signalData={activeData}
+          signalName={`${signal.metadata.name}${chunkSize !== -1 ? ` (Chunk ${chunkIndex + 1})` : ''}`}
         />
 
         {/* Stats */}
@@ -380,8 +451,23 @@ export function Analyzer() {
             <Activity className="w-4 h-4 text-emerald-500" /> Technical Characteristics
           </h3>
           
-          {stats ? (
-            <div className="grid grid-cols-2 gap-y-6 gap-x-4">
+          {stats && patternData ? (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-y-6 gap-x-4">
+              <div>
+                <div className="text-[9px] uppercase tracking-widest text-slate-600 mb-1 font-bold">Class / Pattern</div>
+                <div className="font-mono text-sm uppercase flex items-center gap-2">
+                  <span className={cn(
+                    "font-bold",
+                    patternData.type === 'artificial' ? "text-purple-400" :
+                    patternData.type === 'natural' ? "text-emerald-400" : "text-slate-400"
+                  )}>
+                    {patternData.type}
+                  </span>
+                  <span className="text-[10px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">
+                    {Math.round(patternData.confidence * 100)}% CONF
+                  </span>
+                </div>
+              </div>
               <div>
                 <div className="text-[9px] uppercase tracking-widest text-slate-600 mb-1 font-bold">Peak Amplitude</div>
                 <div className="font-mono text-sm text-slate-200">{stats.peakAmplitude.toFixed(3)}</div>

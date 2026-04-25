@@ -128,7 +128,22 @@ function DiscoveryCard({ signal, onAnalyze }: { signal: Signal, onAnalyze: (id: 
   }, [signal]);
 
   useEffect(() => {
-      const url = generateSonifiedAudioURL(signal.data, 10, 'fm', 440, 200);
+      const url = generateSonifiedAudioURL(signal.data, {
+        mode: 'fm',
+        durationSec: 10,
+        carrierOsc: 440,
+        fmDepth: 200,
+        attack: 0.1,
+        decay: 0.1,
+        sustain: 0.8,
+        release: 0.5,
+        lfoRate: 5,
+        lfoDepth: 0,
+        lfoTarget: 'none',
+        filterType: 'none',
+        filterFreq: 2000,
+        filterQ: 1
+      });
       setAudioUrl(url);
       return () => { if(url) URL.revokeObjectURL(url); }
   }, [signal]);

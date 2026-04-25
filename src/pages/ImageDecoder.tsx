@@ -1,10 +1,10 @@
 // Save to Notes: src/pages/ImageDecoder.tsx
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getSignalById } from '../lib/signal-data';
 import { autoDetectScanlineWidth, DecodeOptions, getAutocorrelationPeaks, cleanSignal } from '../lib/signal-processing';
 import { useAppStore } from '../lib/store';
-import { ArrowLeft, Save, RefreshCw, Settings2, FlipHorizontal, FlipVertical, RotateCw, Sparkles, AlertTriangle, Download, Play, Terminal, Activity, FileDigit, MoveHorizontal, MoveVertical, Sun, Contrast, CheckCircle2, Cpu, Upload, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, RefreshCw, Settings2, FlipHorizontal, FlipVertical, RotateCw, Sparkles, AlertTriangle, Download, Play, Terminal, Activity, FileDigit, MoveHorizontal, MoveVertical, Sun, Contrast, SunMedium, Filter, Search, SlidersHorizontal, Upload, Loader2, Cpu, CheckCircle2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { suggestDecodingParameters, analyzeDecodedImage, AIDecodeSuggestion } from '../services/aiService';
 import { parseSignalFile } from '../lib/file-parser';
@@ -32,7 +32,7 @@ export function ImageDecoder() {
   
   // High-Performance Refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const renderFrameRef = useRef<number>();
+  const renderFrameRef = useRef<number>(0);
   
   // State
   const [width, setWidth] = useState(100);
@@ -510,20 +510,20 @@ export function ImageDecoder() {
                   <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
                     <MoveHorizontal className="w-3.5 h-3.5 text-emerald-500" /> Scanline Width
                   </label>
-                  <input type="number" step="0.1" value={width} onChange={(e) => setWidth(Math.max(1, Number(e.target.value)))} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300" />
+                  <input type="number" step="0.1" value={width} onChange={(e) => setWidth(Math.max(1, Number(e.target.value)))} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-emerald-400 text-right focus:outline-none focus:border-emerald-500 transition-all"/>
                 </div>
-                <input type="range" min="1" max="2000" step="0.1" value={width} onChange={(e) => setWidth(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none accent-emerald-500" />
+                <input type="range" min="1" max="2000" step="0.1" value={width} onChange={(e) => setWidth(Number(e.target.value))} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"/>
               </div>
               
               {/* Drift Compensation Slider */}
               <div className="group">
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-                    <Settings2 className="w-3.5 h-3.5 text-emerald-500" /> Sub-Pixel Skew (Drift)
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-emerald-500" /> Sub-Pixel Skew (Drift)
                   </label>
-                  <input type="number" step="0.001" value={options.skew || 0} onChange={(e) => setOptions({...options, skew: Number(e.target.value)})} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300" />
+                  <input type="number" step="0.001" value={options.skew || 0} onChange={(e) => setOptions({...options, skew: Number(e.target.value)})} className="w-20 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-emerald-400 text-right focus:outline-none focus:border-emerald-500 transition-all"/>
                 </div>
-                <input type="range" min="-0.5" max="0.5" step="0.001" value={options.skew || 0} onChange={(e) => setOptions({...options, skew: Number(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none accent-emerald-500" />
+                <input type="range" min="-0.5" max="0.5" step="0.001" value={options.skew || 0} onChange={(e) => setOptions({...options, skew: Number(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"/>
               </div>
 
               {/* Contrast Slider */}
@@ -532,9 +532,9 @@ export function ImageDecoder() {
                   <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
                     <Contrast className="w-3.5 h-3.5 text-emerald-500" /> Contrast Focus
                   </label>
-                  <input type="number" step="0.1" value={options.contrast} onChange={(e) => setOptions({...options, contrast: Number(e.target.value)})} className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300" />
+                  <input type="number" step="0.1" value={options.contrast} onChange={(e) => setOptions({...options, contrast: Number(e.target.value)})} className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-emerald-400 text-right focus:outline-none focus:border-emerald-500 transition-all"/>
                 </div>
-                <input type="range" min="0.5" max="5.0" step="0.1" value={options.contrast} onChange={(e) => setOptions({...options, contrast: Number(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none accent-emerald-500" />
+                <input type="range" min="0.5" max="5.0" step="0.1" value={options.contrast} onChange={(e) => setOptions({...options, contrast: Number(e.target.value)})} className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500 hover:accent-emerald-400 transition-all"/>
               </div>
 
             </div>

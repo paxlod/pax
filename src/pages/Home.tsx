@@ -3,7 +3,7 @@ import { useAppStore } from '../lib/store';
 import { StatCard } from '../components/StatCard';
 import { SignalCard } from '../components/SignalCard';
 import { getSignalById, getSignalLibrary } from '../lib/signal-data';
-import { Activity, Image as ImageIcon, Zap, ChevronRight, Library, Radio, Wifi, Search, ShieldAlert } from 'lucide-react';
+import { Activity, Image as ImageIcon, Zap, ChevronRight, Library, Radio, Wifi, Search, ShieldAlert, Terminal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export function Home() {
@@ -110,6 +110,24 @@ export function Home() {
               <div>
                 <h3 className="font-semibold text-slate-200">X-7 Decryption</h3>
                 <p className="text-xs text-slate-400 italic">Anomalous Transient Telemetry Matrix</p>
+              </div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-slate-300 transition-colors" />
+          </div>
+        </Link>
+        
+        <Link to="/seti-terminal" className="block bg-slate-900/40 hover:bg-slate-900/60 border border-slate-700/50 rounded-xl p-4 transition-colors group shadow-lg shadow-indigo-500/5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-indigo-500/20 rounded-lg text-indigo-400 group-hover:text-indigo-300 transition-colors">
+                <Terminal className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-slate-200">SETI Terminal</h3>
+                  <span className="text-[8px] bg-indigo-500 text-white px-1 rounded-sm font-black uppercase">NEW</span>
+                </div>
+                <p className="text-xs text-slate-400 italic">Narrowband Drift-Search Specialist</p>
               </div>
             </div>
             <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-slate-300 transition-colors" />

@@ -27,6 +27,7 @@ const AnomalyDetector = lazy(() => import('./pages/AnomalyDetector').then(m => (
 const AiDiscoveries = lazy(() => import('./pages/AiDiscoveries').then(m => ({ default: m.AiDiscoveries })));
 
 const TelemetryDecoder = lazy(() => import('./pages/TelemetryDecoder').then(m => ({ default: m.TelemetryDecoder })));
+const SetiTerminal = lazy(() => import('./pages/SetiTerminal').then(m => ({ default: m.SetiTerminal })));
 const MultivariatePCA = lazy(() => import('./pages/MultivariatePCA').then(m => ({ default: m.MultivariatePCA })));
 const AnomalousTransientDecoder = lazy(() => import('./pages/AnomalousTransientDecoder').then(m => ({ default: m.AnomalousTransientDecoder })));
 
@@ -55,6 +56,7 @@ export default function App() {
                 <Route path="hydrogen" element={<HydrogenRadio />} />
                 <Route path="anomaly-detector" element={<AnomalyDetector />} />
                 <Route path="anomaly-detector/:id" element={<AnomalyDetector />} />
+                <Route path="seti-terminal" element={<SetiTerminal />} />
               </Route>
               <Route path="/analyzer/:id" element={<Analyzer />} />
               <Route path="/decoder" element={<ImageDecoder />} />
