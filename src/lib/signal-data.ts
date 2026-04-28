@@ -793,6 +793,8 @@ export function getSignalLibrary(): Signal[] {
 }
 
 import { useAppStore } from './store';
+import { getSavedSignal } from '../services/signalService';
+import { useState, useEffect } from 'react';
 
 export function getSignalById(id: string): Signal | undefined {
   const staticSignal = getSignalLibrary().find(s => s.metadata.id === id);
@@ -800,4 +802,52 @@ export function getSignalById(id: string): Signal | undefined {
   
   const customSignals = useAppStore.getState().customSignals || [];
   return customSignals.find(s => s.metadata.id === id);
+}
+
+export function useSignal(id?: string, source?: string | null) {
+  const [signal, setSignal] = useState<Signal | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!id) {
+      setSignal(undefined);
+      return;
+    }
+
+    async function fetchSignal() {
+      setIsLoading(true);
+      try {
+        if (source === 'cloud') {
+          const cloudSignal = await getSavedSignal(id);
+          if (cloudSignal) {
+            setSignal({
+              metadata: {
+                id: cloudSignal.id,
+                name: cloudSignal.name,
+                category: (cloudSignal.category || 'Custom') as any,
+                description: cloudSignal.description || 'Saved from cloud',
+                telescope: 'Cloud Database',
+                frequency: 'N/A',
+                date: cloudSignal.createdAt,
+                coordinates: 'N/A'
+              },
+              data: JSON.parse(cloudSignal.data)
+            });
+            return;
+          }
+        }
+        
+        setSignal(getSignalById(id));
+      } catch (err) {
+        console.error("Failed to load signal from cloud", err);
+        setSignal(getSignalById(id));
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    
+    fetchSignal();
+  }, [id, source]);
+
+  return { signal, isLoading };
 }

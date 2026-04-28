@@ -57,6 +57,19 @@
           "type": "string",
           "description": "A description of the signal"
         },
+        "category": {
+           "type": "string",
+           "description": "The classification or category"
+        },
+        "tags": {
+           "type": "array",
+           "items": { "type": "string" },
+           "description": "Array of tags"
+        },
+        "parameters": {
+           "type": "string",
+           "description": "JSON string of signal analysis parameters"
+        },
         "data": {
           "type": "string",
           "description": "JSON stringified array of signal data points"

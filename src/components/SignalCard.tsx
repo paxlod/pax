@@ -1,19 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { SignalMetadata } from '../lib/signal-data';
-import { Activity, Radio, Satellite, Zap, Waves, Sun, Globe, MessageSquare, FileAudio, Trash2 } from 'lucide-react';
+import { Activity, Radio, Satellite, Zap, Waves, Sun, Globe, MessageSquare, FileAudio, Trash2, Play, Pause } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Link } from 'react-router-dom';
 import { useAppStore } from '../lib/store';
+import { sonifier } from '../lib/RealTimeSonifier';
 
 interface SignalCardProps {
   key?: string | number;
   signal: SignalMetadata;
+  signalData?: number[];
   className?: string;
 }
 
-export function SignalCard({ signal, className }: SignalCardProps) {
+export function SignalCard({ signal, signalData, className }: SignalCardProps) {
   const { deleteCustomSignal, viewedSignals } = useAppStore();
   const isViewed = viewedSignals?.includes(signal.id);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const getIcon = () => {
     switch (signal.category) {
@@ -53,6 +56,22 @@ export function SignalCard({ signal, className }: SignalCardProps) {
     }
   };
 
+  const handlePlayToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!signalData) return;
+    
+    if (isPlaying) {
+      sonifier.stop();
+      setIsPlaying(false);
+    } else {
+      sonifier.playSignal(signalData, 44100, 1.0);
+      setIsPlaying(true);
+      // Auto reset play state after roughly the duration
+      setTimeout(() => setIsPlaying(false), (signalData.length / 44100) * 1000);
+    }
+  };
+
   return (
     <Link to={`/analyzer/${signal.id}`} className="block">
       <div className={cn(
@@ -74,8 +93,17 @@ export function SignalCard({ signal, className }: SignalCardProps) {
         
         <div className="flex justify-between items-start mb-3 pr-10">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-800 rounded-lg group-hover:bg-slate-700 transition-colors">
+            <div className="p-2 bg-slate-800 rounded-lg group-hover:bg-slate-700 transition-colors relative">
               {getIcon()}
+              {signalData && (
+                <button
+                  onClick={handlePlayToggle}
+                  className="absolute -bottom-2 -right-2 bg-indigo-600 hover:bg-indigo-500 text-white p-1 rounded-full shadow-lg transition-transform hover:scale-110 active:scale-95"
+                  title="Play Raw Audio"
+                >
+                  {isPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 ml-0.5 fill-current" />}
+                </button>
+              )}
             </div>
             <div>
               <h3 className="font-semibold text-slate-100">{signal.name}</h3>

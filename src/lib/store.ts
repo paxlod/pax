@@ -1,7 +1,21 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, StateStorage, createJSONStorage } from 'zustand/middleware';
+import { get, set, del } from 'idb-keyval';
 import { DecodeOptions } from './signal-processing';
 import type { Signal } from './signal-data';
+
+// Custom IndexedDB storage for Zustand
+const idbStorage: StateStorage = {
+  getItem: async (name: string): Promise<string | null> => {
+    return (await get(name)) || null;
+  },
+  setItem: async (name: string, value: string): Promise<void> => {
+    await set(name, value);
+  },
+  removeItem: async (name: string): Promise<void> => {
+    await del(name);
+  },
+};
 
 export interface SavedResult {
   id: string;
@@ -123,6 +137,7 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: 'golden-signal-storage',
+      storage: createJSONStorage(() => idbStorage),
     }
   )
 );

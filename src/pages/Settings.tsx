@@ -120,8 +120,14 @@ export function Settings() {
               <p className="text-sm text-red-400">Are you sure? This cannot be undone.</p>
               <div className="flex gap-2">
                 <button 
-                  onClick={() => {
+                  onClick={async () => {
                     localStorage.removeItem('golden-signal-storage');
+                    try {
+                      const { del } = await import('idb-keyval');
+                      await del('golden-signal-storage');
+                    } catch (e) {
+                      console.error('Failed to clear idb-keyval', e);
+                    }
                     window.location.reload();
                   }}
                   className="flex-1 bg-red-600 hover:bg-red-500 text-white py-2 rounded-lg text-sm font-medium transition-colors"

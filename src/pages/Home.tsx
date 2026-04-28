@@ -142,7 +142,7 @@ export function Home() {
           </div>
           <div className="space-y-3">
             {recents.map(signal => (
-              <SignalCard key={`recent-${signal.metadata.id}`} signal={signal.metadata} />
+              <SignalCard key={`recent-${signal.metadata.id}`} signal={signal.metadata} signalData={signal.data} />
             ))}
           </div>
         </section>
@@ -157,7 +157,7 @@ export function Home() {
         </div>
         <div className="space-y-3">
           {featured.map(signal => (
-            <SignalCard key={`feat-${signal.metadata.id}`} signal={signal.metadata} />
+            <SignalCard key={`feat-${signal.metadata.id}`} signal={signal.metadata} signalData={signal.data} />
           ))}
         </div>
       </section>

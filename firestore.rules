@@ -90,7 +90,7 @@ service cloud.firestore {
     }
 
     function isValidSignal(data) {
-      let allowedFields = ['id', 'authorUid', 'name', 'description', 'data', 'createdAt'];
+      let allowedFields = ['id', 'authorUid', 'name', 'description', 'category', 'tags', 'parameters', 'data', 'createdAt'];
       let requiredFields = ['id', 'authorUid', 'name', 'data', 'createdAt'];
       
       return hasOnlyAllowedFields(allowedFields) &&
@@ -99,6 +99,9 @@ service cloud.firestore {
              data.authorUid is string && data.authorUid.size() > 0 && data.authorUid.size() < 100 &&
              data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
              (!('description' in data) || (data.description is string && data.description.size() <= 1000)) &&
+             (!('category' in data) || (data.category is string && data.category.size() <= 100)) &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 50)) &&
+             (!('parameters' in data) || (data.parameters is string && data.parameters.size() <= 50000)) &&
              data.data is string && data.data.size() <= 1000000 && // 1MB limit
              data.createdAt is string;
     }

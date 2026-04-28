@@ -1,19 +1,25 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { getSignalById, getSignalLibrary } from '../lib/signal-data';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { getSignalLibrary, useSignal } from '../lib/signal-data';
 import { WaveformView } from '../components/WaveformView';
 import { SpectrogramView } from '../components/SpectrogramView';
 import { SpectrumView } from '../components/SpectrumView';
 import { useAppStore } from '../lib/store';
-import { ArrowLeft, Activity, Zap, Info, ShieldAlert, Binary, Volume2, Square, Radio, Wifi, Image as ImageIcon, MessageSquare, Crosshair, Play, Pause, FastForward, SlidersHorizontal, Download, Network } from 'lucide-react';
+import { ArrowLeft, Activity, Zap, Info, ShieldAlert, Binary, Volume2, Square, Radio, Wifi, Image as ImageIcon, MessageSquare, Crosshair, Play, Pause, FastForward, SlidersHorizontal, Download, Network, Database, Loader2, Cloud } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { analyzeSignal, detectPatterns } from '../lib/signal-processing';
 import { ScientificNeuralModal } from '../components/ScientificNeuralModal';
 import { SonificationStudio, generateSonifiedAudioURL } from '../components/SonificationStudio';
 import { Brain } from 'lucide-react';
+import { saveSignal } from '../services/signalService';
+import { auth } from '../lib/firebase';
 
 export function Analyzer() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const source = searchParams.get('source');
+
   const navigate = useNavigate();
   const { addRecentSignal, incrementStat, markSignalAsViewed } = useAppStore();
   
@@ -36,8 +42,9 @@ export function Analyzer() {
   // Modals state
   const [isScientificModalOpen, setIsScientificModalOpen] = useState(false);
   const [isSonificationStudioOpen, setIsSonificationStudioOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
-  const signal = id ? getSignalById(id) : undefined;
+  const { signal, isLoading } = useSignal(id, source);
   const isHydrogen = signal?.metadata.category === 'Hydrogen Radio';
 
   // Chunking logic
@@ -55,7 +62,7 @@ export function Analyzer() {
   }, [signal, chunkSize, chunkIndex]);
 
   useEffect(() => {
-    if (signal) {
+    if (signal && !isLoading) {
       addRecentSignal(signal.metadata.id);
       markSignalAsViewed(signal.metadata.id);
       incrementStat('signalsAnalyzed');
@@ -65,7 +72,33 @@ export function Analyzer() {
         setPatternData(detectPatterns(activeData));
       }, 100);
     }
-  }, [signal?.metadata.id, activeData]);
+  }, [signal?.metadata.id, activeData, isLoading]);
+
+  const handleSaveToCloud = async () => {
+    if (!signal) return;
+    if (!auth.currentUser) {
+      alert("Please sign in to save signals to the cloud.");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await saveSignal({
+        name: signal.metadata.name,
+        description: signal.metadata.description,
+        category: signal.metadata.category,
+        tags: [signal.metadata.category, ...Object.keys(patternData || {}).slice(0, 2)],
+        parameters: JSON.stringify({ stats, patternData, chunkSize, chunkIndex }),
+        data: JSON.stringify(signal.data)
+      });
+      alert("Signal saved to cloud successfully!");
+    } catch (e) {
+      console.error("Failed to save signal", e);
+      alert("Failed to save signal. Check console for details.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Handle Quick Sonification Generation
   const handleQuickSonifyUpdate = () => {
@@ -145,18 +178,25 @@ export function Analyzer() {
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-grow min-w-0 pr-4">
-          <select
-            value={signal.metadata.id}
-            onChange={(e) => navigate(`/analyzer/${e.target.value}`)}
-            className="w-full bg-slate-900 text-slate-100 font-semibold leading-tight tracking-tight uppercase italic text-sm outline-none border border-slate-800 hover:border-slate-600 focus:border-indigo-500 transition-colors cursor-pointer appearance-none px-3 py-1.5 rounded-lg truncate shadow-sm overflow-hidden text-ellipsis"
-            style={{ textOverflow: 'ellipsis' }}
-          >
-            {getSignalLibrary().map((s) => (
-              <option key={s.metadata.id} value={s.metadata.id} className="bg-slate-900 text-slate-300 not-italic normal-case font-mono text-xs">
-                {s.metadata.name} [{s.metadata.category}]
-              </option>
-            ))}
-          </select>
+          {source === 'cloud' ? (
+            <div className="w-full bg-slate-900 text-slate-100 font-semibold leading-tight tracking-tight uppercase italic text-sm px-3 py-1.5 rounded-lg border border-indigo-500/50 shadow-sm flex items-center justify-between">
+              <span className="truncate">{signal.metadata.name}</span>
+              <Cloud className="w-4 h-4 text-indigo-400 flex-shrink-0 ml-2" />
+            </div>
+          ) : (
+            <select
+              value={signal.metadata.id}
+              onChange={(e) => navigate(`/analyzer/${e.target.value}`)}
+              className="w-full bg-slate-900 text-slate-100 font-semibold leading-tight tracking-tight uppercase italic text-sm outline-none border border-slate-800 hover:border-slate-600 focus:border-indigo-500 transition-colors cursor-pointer appearance-none px-3 py-1.5 rounded-lg truncate shadow-sm overflow-hidden text-ellipsis"
+              style={{ textOverflow: 'ellipsis' }}
+            >
+              {getSignalLibrary().map((s) => (
+                <option key={s.metadata.id} value={s.metadata.id} className="bg-slate-900 text-slate-300 not-italic normal-case font-mono text-xs">
+                  {s.metadata.name} [{s.metadata.category}]
+                </option>
+              ))}
+            </select>
+          )}
           <div className="flex items-center gap-2 mt-1 px-1">
             <span className="text-[10px] uppercase font-bold tracking-widest text-slate-500 truncate">{signal.metadata.category}</span>
             <span className="text-[10px] text-emerald-500 font-mono opacity-60 flex items-center gap-1">
@@ -164,6 +204,17 @@ export function Analyzer() {
             </span>
           </div>
         </div>
+        
+        {source !== 'cloud' && (
+          <button
+            onClick={handleSaveToCloud}
+            disabled={isSaving}
+            className="flex-shrink-0 flex items-center justify-center p-2 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 active:bg-indigo-500/30 transition-colors border border-indigo-500/20 disabled:opacity-50"
+            title="Save to Cloud"
+          >
+            {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Database className="w-5 h-5" />}
+          </button>
+        )}
       </header>
 
       <div className="p-4 space-y-6 max-w-2xl mx-auto w-full">
@@ -238,6 +289,16 @@ export function Analyzer() {
                 FFT
               </button>
             </div>
+            {source !== 'cloud' && (
+              <button
+                onClick={handleSaveToCloud}
+                disabled={isSaving}
+                className="ml-2 flex flex-col items-center justify-center p-2 rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 active:bg-emerald-500/30 transition-colors border border-emerald-500/20 disabled:opacity-50"
+                title="Save to Cloud"
+              >
+                {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Database className="w-5 h-5" />}
+              </button>
+            )}
           </div>
           
           <div className="min-h-56 w-full bg-black rounded-xl overflow-hidden border border-slate-800 shadow-inner relative group">

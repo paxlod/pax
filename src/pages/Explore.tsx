@@ -208,7 +208,7 @@ export function Explore() {
         </div>
         {filteredSignals.length > 0 ? (
           filteredSignals.map(signal => (
-            <SignalCard key={signal.metadata.id} signal={signal.metadata} />
+            <SignalCard key={signal.metadata.id} signal={signal.metadata} signalData={signal.data} />
           ))
         ) : (
           <div className="text-center py-12 text-slate-500">
